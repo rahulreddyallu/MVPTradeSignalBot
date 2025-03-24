@@ -11,7 +11,7 @@ import sys
 import traceback
 import schedule
 import asyncio
-from upstox_api.api import Upstox, Session, OHLCInterval
+from ApiClient import Ohlc as OHLCInterval
 from aiogram import Bot
 from config import *
 from compute import *
@@ -31,15 +31,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Upstox client
 def initialize_upstox():
     try:
-        s = Session(UPSTOX_API_KEY)
-        s.set_redirect_uri(UPSTOX_REDIRECT_URI)
-        s.set_api_secret(UPSTOX_API_SECRET)
-        s.set_code(UPSTOX_AUTH_CODE)  # You need to obtain this code from Upstox authorization
-
-        access_token = s.retrieve_access_token()
+        # Directly use the access token
+        access_token = UPSTOX_ACCESS_TOKEN  # Ensure this is set in your config
         u = Upstox(UPSTOX_API_KEY, access_token)
         return u
     except Exception as e:
