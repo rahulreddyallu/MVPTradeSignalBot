@@ -35,7 +35,7 @@ def initialize_upstox():
     try:
         # Directly use the access token
         access_token = UPSTOX_ACCESS_TOKEN  # Ensure this is set in your config
-        return u
+        return access_token
     except Exception as e:
         logger.error(f"Authentication error: {e}")
         return None
