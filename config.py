@@ -14,6 +14,8 @@ TELEGRAM_BOT_TOKEN = "7209852741:AAEf-_f6TeZK1-_R55yq365iU_54rk95y-c"
 TELEGRAM_CHAT_ID = "936205208"
 ENABLE_TELEGRAM_ALERTS = True
 
+HISTORICAL_DAYS = 365
+
 # Stock Universe
 # List of NIFTY 200 stocks to analyze (instrument IDs from Upstox)
 STOCK_LIST = [
