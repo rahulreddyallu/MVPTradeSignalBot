@@ -4,19 +4,24 @@ Contains all parameters, credentials and settings
 """
 
 # Upstox API Credentials
-UPSTOX_API_KEY = "ad55de1b-c7d1-4adc-b559-3830bf1efd72"
-UPSTOX_API_SECRET = "Y969nyjgapm"
-UPSTOX_REDIRECT_URI = "https://localhost"
-UPSTOX_CODE = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0TEFGUDkiLCJqdGkiOiI2N2UxOGQ3NWFjNGE0MzIwMzk3MDU5MTMiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaWF0IjoxNzQyODM1MDYxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NDI4NTM2MDB9.MVurEdapsDviJ8gJ5f2nnPv4a-xmgEvXreaZvJsVU5w"  # Generated during login flow
+UPSTOX_API_KEY = "your_api_key_here"
+UPSTOX_API_SECRET = "your_api_secret_here"
+UPSTOX_REDIRECT_URI = "your_redirect_uri_here"
+UPSTOX_CODE = "your_upstox_code_here"  # Generated during login flow
 
 # Telegram Configuration
-TELEGRAM_BOT_TOKEN = "7209852741:AAEf-_f6TeZK1-_R55yq365iU_54rk95y-c"
-TELEGRAM_CHAT_ID = "936205208"
+TELEGRAM_BOT_TOKEN = "your_telegram_bot_token_here"
+TELEGRAM_CHAT_ID = "your_telegram_chat_id_here"
 
 # Stock Universe
-# List of NIFTY 200 stocks to analyze (instrument IDs from Upstox)
+# List of NIFTY 200 stocks to analyze
 STOCK_LIST = [
-     "RELIANCE", "HDFCBANK", "TCS", "BHARTIARTL", "ICICIBANK", "SBIN"
+    "NSE_EQ|RELIANCE",  # Example: RELIANCE
+    "NSE_EQ|HDFCBANK",  # Example: HDFC BANK
+    "NSE_EQ|TCS",       # Example: TCS
+    "NSE_EQ|INFY",      # Example: INFOSYS
+    "NSE_EQ|BHARTIARTL" # Example: BHARTI AIRTEL
+    # Add more NIFTY 200 stocks here
 ]
 
 # Data Configuration
