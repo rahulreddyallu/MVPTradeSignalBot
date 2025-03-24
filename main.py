@@ -10,8 +10,11 @@ import logging
 import sys
 import traceback
 import schedule
-from compute import TradingSignalBot, UpstoxClient, TelegramSender
-import config
+import asyncio
+from upstox_api.api import Upstox, Session, OHLCInterval
+from aiogram import Bot
+from config import *
+from compute import *
 
 # Create logs directory if it doesn't exist
 os.makedirs('logs', exist_ok=True)
@@ -28,27 +31,92 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize Upstox client
+def initialize_upstox():
+    try:
+        s = Session(UPSTOX_API_KEY)
+        s.set_redirect_uri(UPSTOX_REDIRECT_URI)
+        s.set_api_secret(UPSTOX_API_SECRET)
+        s.set_code(UPSTOX_AUTH_CODE)  # You need to obtain this code from Upstox authorization
+
+        access_token = s.retrieve_access_token()
+        u = Upstox(UPSTOX_API_KEY, access_token)
+        return u
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        return None
+
+# Telegram notification function
+async def send_telegram_message(message):
+    if ENABLE_TELEGRAM_ALERTS:
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+        await bot.close()
+
 def send_startup_notification():
     """Send a startup notification via Telegram"""
     try:
-        telegram = TelegramSender(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID)
+        loop = asyncio.get_event_loop()
         message = f"""
 🚀 *NIFTY 200 Trading Signal Bot Started* 🚀
 
 *Version:* 1.0.0
 *Started at:* {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-*Analysis Frequency:* Every {config.ANALYSIS_FREQUENCY} hour(s)
-*Stocks Monitored:* {len(config.STOCK_LIST)} NIFTY 200 stocks
+*Analysis Frequency:* Every {ANALYSIS_FREQUENCY} hour(s)
+*Stocks Monitored:* {len(STOCK_LIST)} NIFTY 200 stocks
 *Timeframes Analyzed:* 
 - Short Term (3-6 months)
 - Long Term (>1 year)
 
 Bot is now actively monitoring for trading signals.
         """
-        telegram.send_message(message)
+        loop.run_until_complete(send_telegram_message(message))
         logger.info("Startup notification sent")
     except Exception as e:
         logger.error(f"Failed to send startup notification: {str(e)}")
+
+def fetch_ohlcv_data(symbol, start_date, end_date):
+    try:
+        # Initialize Upstox client
+        upstox_client = initialize_upstox()
+        if not upstox_client:
+            raise Exception("Failed to initialize Upstox client")
+        
+        # Fetch OHLCV data
+        ohlcv_data = upstox_client.get_ohlc(symbol, OHLCInterval.Day_1, start_date, end_date)
+        df = pd.DataFrame(ohlcv_data)
+        return df
+    except Exception as e:
+        logger.error(f"Error fetching OHLCV data: {e}")
+        return pd.DataFrame()
+
+async def analyze_and_generate_signals():
+    start_date = (datetime.datetime.now() - datetime.timedelta(days=HISTORICAL_DAYS)).strftime('%Y-%m-%d')
+    end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+
+    # Example for NIFTY 200 stocks
+    symbols = ["RELIANCE", "TCS", "INFY"]  # Replace with actual NIFTY 200 symbols
+
+    for symbol in symbols:
+        data = fetch_ohlcv_data(symbol, start_date, end_date)
+        if data.empty:
+            logger.error(f"No data fetched for {symbol}")
+            continue
+
+        data['EMA_SHORT'] = calculate_ema(data['Close'], EMA_SHORT)
+        data['EMA_LONG'] = calculate_ema(data['Close'], EMA_LONG)
+        data['RSI'] = calculate_rsi(data['Close'], RSI_PERIOD)
+        data['MACD'], data['MACD_SIGNAL'] = calculate_macd(data['Close'], MACD_FAST, MACD_SLOW, MACD_SIGNAL)
+        data['BB_UPPER'], data['BB_LOWER'] = calculate_bollinger_bands(data['Close'], BB_PERIOD, BB_STDDEV)
+        data['SUPERTREND'] = calculate_supertrend(data, SUPERTREND_PERIOD, SUPERTREND_MULTIPLIER)
+        data['ADX'] = calculate_adx(data, ADX_PERIOD)
+        data['VWAP'] = calculate_vwap(data)
+
+        signals = generate_signals(data)
+
+        for signal in signals:
+            message = f"{signal}\nSymbol: {symbol}\nPrice: {data['Close'].iloc[-1]}"
+            await send_telegram_message(message)
 
 def run_trading_signals():
     """Run the trading signal generation process"""
@@ -56,11 +124,8 @@ def run_trading_signals():
     logger.info("Starting trading signal analysis")
     
     try:
-        # Initialize the bot
-        bot = TradingSignalBot()
-        
-        # Run the analysis
-        bot.run()
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(analyze_and_generate_signals())
         
         # Log completion
         elapsed_time = time.time() - start_time
@@ -72,16 +137,14 @@ def run_trading_signals():
         
         # Send error notification
         try:
-            telegram = TelegramSender(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID)
-            error_message = f"""
+            loop.run_until_complete(send_telegram_message(f"""
 ⚠️ *ERROR: Trading Signal Bot Failure* ⚠️
 
 *Time:* {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 *Error:* {str(e)}
 
 Please check the logs for more details.
-            """
-            telegram.send_message(error_message)
+            """))
         except:
             logger.error("Failed to send error notification")
 
@@ -90,8 +153,8 @@ def test_upstox_connection():
     logger.info("Testing Upstox API connection...")
     
     try:
-        client = UpstoxClient()
-        if client.authenticate():
+        client = initialize_upstox()
+        if client:
             logger.info("✅ Successfully authenticated with Upstox API")
             return True
         else:
@@ -106,8 +169,8 @@ def test_telegram_connection():
     logger.info("Testing Telegram API connection...")
     
     try:
-        telegram = TelegramSender(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID)
-        result = telegram.send_message("🔍 *Test Message* - NIFTY 200 Trading Signal Bot connection test successful!")
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(send_telegram_message("🔍 *Test Message* - NIFTY 200 Trading Signal Bot connection test successful!"))
         
         if result:
             logger.info("✅ Successfully sent test message to Telegram")
