@@ -1,31 +1,22 @@
 # Core dependencies
-upstox==2.0.3
 pandas==1.5.3
 numpy==1.24.3
+pandas-ta==0.3.14b0
+upstox==2.0.3
 requests==2.31.0
+
+# Telegram integration
+python-telegram-bot==13.15
 
 # Scheduling and time management
 schedule==1.2.0
 pytz==2023.3
-
-# Technical analysis libraries
-ta-lib==0.4.28  # Note: Requires separate C library installation
-# Alternative if ta-lib installation is problematic:
-pandas-ta==0.3.14b0
 
 # Logging and monitoring
 colorlog==6.7.0
 
 # Date handling
 python-dateutil==2.8.2
-
-# Optional - Visualization (uncomment if needed)
-# matplotlib==3.7.1
-# mplfinance==0.12.9b0
-
-# HTTP/Network
-urllib3==2.0.4
-certifi==2023.7.22
 
 # JSON handling
 simplejson==3.19.1
