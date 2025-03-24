@@ -31,15 +31,35 @@ class UpstoxClient:
         self.api_secret = config.UPSTOX_API_SECRET
         self.redirect_uri = config.UPSTOX_REDIRECT_URI
         self.code = config.UPSTOX_CODE
-        self.session = None
+        self.access_token = None
         self.client = None
         
     def authenticate(self):
         """Authenticate with Upstox API"""
         try:
-            # Create session
-            self.session = Session(self.api_key)
+            # Since we already have the access token in the config, we can use it directly
+            self.access_token = self.code  # The UPSTOX_CODE is actually the access token
             
+            # Create client with access token
+            self.client = upstox_client.Client(api_key=self.api_key, access_token=self.access_token)
+            
+            # Test the connection
+            try:
+                profile = self.client.get_profile()
+                logger.info(f"Authentication successful for user: {profile['data']['user_name']}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to validate access token: {str(e)}")
+                # If the access token is invalid or expired, try to refresh it
+                return self._refresh_token()
+            
+        except Exception as e:
+            logger.error(f"Authentication error: {str(e)}")
+            return False
+    
+    def _refresh_token(self):
+        """Refresh the access token if needed"""
+        try:
             # Generate and set access token using authorization code
             url = "https://api.upstox.com/v2/login/authorization/token"
             headers = {
@@ -62,17 +82,17 @@ class UpstoxClient:
                 logger.error(f"Authentication failed: {response.text}")
                 return False
             
-            # Set access token in session
-            self.session.set_token(response_data['access_token'])
+            # Store access token
+            self.access_token = response_data['access_token']
             
-            # Create client with session
-            self.client = Client(self.session)
+            # Create client with access token
+            self.client = upstox_client.Client(api_key=self.api_key, access_token=self.access_token)
             
-            logger.info("Authentication successful")
+            logger.info("Authentication refreshed successfully")
             return True
             
         except Exception as e:
-            logger.error(f"Authentication error: {str(e)}")
+            logger.error(f"Token refresh error: {str(e)}")
             return False
     
     def get_historical_data(self, instrument_key, interval, from_date, to_date):
@@ -94,7 +114,7 @@ class UpstoxClient:
             to_epoch = int(time.mktime(datetime.datetime.strptime(to_date, "%Y-%m-%d").timetuple()))
             
             # Make API request
-            response = self.client.get_historical_candle_data(
+            historical_data = self.client.historical_candle_data(
                 instrument_key=instrument_key,
                 interval=interval,
                 to_date=to_epoch,
@@ -102,7 +122,7 @@ class UpstoxClient:
             )
             
             # Extract candle data
-            candles = response.data.candles
+            candles = historical_data['data']['candles']
             
             # Create DataFrame
             df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -118,17 +138,15 @@ class UpstoxClient:
     def get_instrument_details(self, instrument_key):
         """Get instrument details from Upstox"""
         try:
-            response = self.client.get_market_quote_ohlc(
-                instrument_key=instrument_key,
-                interval="1d"
-            )
+            # Get market quote for the instrument
+            market_quote = self.client.get_market_quote_full(instrument_key)
             
             # Extract basic instrument details from response
             instrument_details = {
-                'name': response.name,
-                'tradingsymbol': response.symbol,
-                'exchange': response.exchange,
-                'last_price': response.last_price
+                'name': market_quote['data']['company_name'],
+                'tradingsymbol': market_quote['data']['symbol'],
+                'exchange': market_quote['data']['exchange'],
+                'last_price': market_quote['data']['last_price']
             }
             
             return instrument_details
