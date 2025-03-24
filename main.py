@@ -11,7 +11,7 @@ import sys
 import traceback
 import schedule
 import asyncio
-from ApiClient import Ohlc as OHLCInterval
+from upstox_client.models.ohlc import Ohlc as OHLCInterval
 from aiogram import Bot
 from config import *
 from compute import *
