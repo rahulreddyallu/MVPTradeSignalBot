@@ -9,6 +9,7 @@ import datetime
 import logging
 import sys
 import traceback
+import schedule
 from compute import TradingSignalBot, UpstoxClient, TelegramSender
 import config
 
@@ -120,8 +121,6 @@ def test_telegram_connection():
 
 def schedule_analysis():
     """Schedule the analysis based on config"""
-    import schedule
-    
     # Schedule for specific hours of the day based on market hours
     for hour in range(9, 16):  # 9 AM to 3 PM
         schedule.every().monday.at(f"{hour:02d}:00").do(run_trading_signals)
@@ -142,9 +141,6 @@ def schedule_analysis():
     schedule.every().wednesday.at("15:30").do(run_trading_signals)
     schedule.every().thursday.at("15:30").do(run_trading_signals)
     schedule.every().friday.at("15:30").do(run_trading_signals)
-    
-    # Alternatively, if you want to run at a fixed interval regardless of market hours:
-    # schedule.every(config.ANALYSIS_FREQUENCY).hours.do(run_trading_signals)
     
     logger.info(f"Analysis scheduled during market hours (9:00 AM - 3:30 PM) on weekdays")
     
