@@ -13,7 +13,8 @@ import logging
 import telegram
 from telegram.ext import Updater
 import requests
-import upstox_client 
+import upstox_client
+from upstox_client import ApiClient
 import config
 
 # Setup logging
