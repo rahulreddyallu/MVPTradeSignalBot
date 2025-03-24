@@ -4,17 +4,18 @@ Contains technical analysis, pattern recognition, and signal generation
 """
 
 import pandas as pd
+import pandas_ta as ta
 import numpy as np
 import datetime
 import time
-import requests
 import json
 import logging
-from upstox_client.rest import ApiException
-import upstox_client
-from upstox_client.api import market_data_api, trading_api
+import telegram
+from telegram.ext import Updater
+import requests
+from upstox.session import Session
+from upstox.client import Client
 import config
-
 
 # Setup logging
 logging.basicConfig(
@@ -25,15 +26,21 @@ logger = logging.getLogger(__name__)
 
 class UpstoxClient:
     def __init__(self):
-        self.access_token = None
-        self.configuration = upstox_client.Configuration()
-        self.market_data_api_instance = None
-        self.trading_api_instance = None
+        """Initialize Upstox client with API credentials"""
+        self.api_key = config.UPSTOX_API_KEY
+        self.api_secret = config.UPSTOX_API_SECRET
+        self.redirect_uri = config.UPSTOX_REDIRECT_URI
+        self.code = config.UPSTOX_CODE
+        self.session = None
+        self.client = None
         
     def authenticate(self):
         """Authenticate with Upstox API"""
         try:
-            # Step 1: Generate token
+            # Create session
+            self.session = Session(self.api_key)
+            
+            # Generate and set access token using authorization code
             url = "https://api.upstox.com/v2/login/authorization/token"
             headers = {
                 'accept': 'application/json',
@@ -41,10 +48,10 @@ class UpstoxClient:
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
             data = {
-                'code': config.UPSTOX_CODE,
-                'client_id': config.UPSTOX_API_KEY,
-                'client_secret': config.UPSTOX_API_SECRET,
-                'redirect_uri': config.UPSTOX_REDIRECT_URI,
+                'code': self.code,
+                'client_id': self.api_key,
+                'client_secret': self.api_secret,
+                'redirect_uri': self.redirect_uri,
                 'grant_type': 'authorization_code'
             }
             
@@ -55,14 +62,11 @@ class UpstoxClient:
                 logger.error(f"Authentication failed: {response.text}")
                 return False
             
-            self.access_token = response_data['access_token']
+            # Set access token in session
+            self.session.set_token(response_data['access_token'])
             
-            # Setup configuration with token
-            self.configuration.access_token = self.access_token
-            
-            # Initialize API instances
-            self.market_data_api_instance = market_data_api.MarketDataApi(upstox_client.ApiClient(self.configuration))
-            self.trading_api_instance = trading_api.TradingApi(upstox_client.ApiClient(self.configuration))
+            # Create client with session
+            self.client = Client(self.session)
             
             logger.info("Authentication successful")
             return True
@@ -90,7 +94,7 @@ class UpstoxClient:
             to_epoch = int(time.mktime(datetime.datetime.strptime(to_date, "%Y-%m-%d").timetuple()))
             
             # Make API request
-            response = self.market_data_api_instance.get_historical_candle_data(
+            response = self.client.get_historical_candle_data(
                 instrument_key=instrument_key,
                 interval=interval,
                 to_date=to_epoch,
@@ -107,18 +111,29 @@ class UpstoxClient:
             
             return df
             
-        except ApiException as e:
+        except Exception as e:
             logger.error(f"Error getting historical data: {str(e)}")
             return None
 
     def get_instrument_details(self, instrument_key):
         """Get instrument details from Upstox"""
         try:
-            response = self.trading_api_instance.get_instrument_details(
-                instrument_key=instrument_key
+            response = self.client.get_market_quote_ohlc(
+                instrument_key=instrument_key,
+                interval="1d"
             )
-            return response.data
-        except ApiException as e:
+            
+            # Extract basic instrument details from response
+            instrument_details = {
+                'name': response.name,
+                'tradingsymbol': response.symbol,
+                'exchange': response.exchange,
+                'last_price': response.last_price
+            }
+            
+            return instrument_details
+            
+        except Exception as e:
             logger.error(f"Error getting instrument details: {str(e)}")
             return None
 
@@ -137,7 +152,7 @@ class TechnicalAnalysis:
         self.signals = []
     
     def calculate_all_indicators(self):
-        """Calculate all technical indicators"""
+        """Calculate all technical indicators using pandas-ta"""
         self._calculate_moving_averages()
         self._calculate_macd()
         self._calculate_supertrend()
@@ -158,12 +173,12 @@ class TechnicalAnalysis:
         params = config.INDICATORS["moving_averages"]
         
         # Calculate SMAs
-        self.df['sma_mid'] = self.df['close'].rolling(window=params['sma_mid']).mean()
-        self.df['sma_long'] = self.df['close'].rolling(window=params['sma_long']).mean()
+        self.df['sma_mid'] = ta.sma(self.df['close'], length=params['sma_mid'])
+        self.df['sma_long'] = ta.sma(self.df['close'], length=params['sma_long'])
         
         # Calculate EMAs
-        self.df['ema_short'] = self.df['close'].ewm(span=params['ema_short'], adjust=False).mean()
-        self.df['ema_long'] = self.df['close'].ewm(span=params['ema_long'], adjust=False).mean()
+        self.df['ema_short'] = ta.ema(self.df['close'], length=params['ema_short'])
+        self.df['ema_long'] = ta.ema(self.df['close'], length=params['ema_long'])
         
         # Generate signals
         self.df['ema_crossover'] = 0
@@ -202,15 +217,21 @@ class TechnicalAnalysis:
             })
     
     def _calculate_macd(self):
-        """Calculate MACD (Moving Average Convergence Divergence)"""
+        """Calculate MACD (Moving Average Convergence Divergence) using pandas-ta"""
         params = config.INDICATORS["macd"]
         
-        # Calculate MACD components
-        self.df['ema_fast'] = self.df['close'].ewm(span=params['fast_period'], adjust=False).mean()
-        self.df['ema_slow'] = self.df['close'].ewm(span=params['slow_period'], adjust=False).mean()
-        self.df['macd_line'] = self.df['ema_fast'] - self.df['ema_slow']
-        self.df['signal_line'] = self.df['macd_line'].ewm(span=params['signal_period'], adjust=False).mean()
-        self.df['macd_histogram'] = self.df['macd_line'] - self.df['signal_line']
+        # Calculate MACD with pandas-ta
+        macd = ta.macd(
+            self.df['close'], 
+            fast=params['fast_period'], 
+            slow=params['slow_period'], 
+            signal=params['signal_period']
+        )
+        
+        # Add MACD components to dataframe
+        self.df['macd_line'] = macd[f"MACD_{params['fast_period']}_{params['slow_period']}_{params['signal_period']}"]
+        self.df['signal_line'] = macd[f"MACDs_{params['fast_period']}_{params['slow_period']}_{params['signal_period']}"]
+        self.df['macd_histogram'] = macd[f"MACDh_{params['fast_period']}_{params['slow_period']}_{params['signal_period']}"]
         
         # Generate signals
         self.df['macd_crossover'] = 0
@@ -248,52 +269,22 @@ class TechnicalAnalysis:
             })
     
     def _calculate_supertrend(self):
-        """Calculate Supertrend indicator"""
+        """Calculate Supertrend indicator using pandas-ta"""
         params = config.INDICATORS["supertrend"]
         
-        # Calculate ATR
-        high_low = self.df['high'] - self.df['low']
-        high_close = abs(self.df['high'] - self.df['close'].shift())
-        low_close = abs(self.df['low'] - self.df['close'].shift())
+        # Calculate Supertrend using pandas-ta
+        supertrend = ta.supertrend(
+            high=self.df['high'],
+            low=self.df['low'],
+            close=self.df['close'],
+            length=params['period'],
+            multiplier=params['multiplier']
+        )
         
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = ranges.max(axis=1)
-        
-        atr = true_range.rolling(params['period']).mean()
-        
-        # Calculate Upper and Lower Bands
-        hl2 = (self.df['high'] + self.df['low']) / 2
-        self.df['upperband'] = hl2 + (params['multiplier'] * atr)
-        self.df['lowerband'] = hl2 - (params['multiplier'] * atr)
-        
-        # Initialize Supertrend
-        self.df['supertrend'] = 0
-        self.df['supertrend_direction'] = 1  # 1 for uptrend, -1 for downtrend
-        
-        # Calculate Supertrend
-        for i in range(1, len(self.df)):
-            curr = self.df.iloc[i]
-            prev = self.df.iloc[i-1]
-            
-            # Determine trend
-            if curr['close'] > prev['upperband']:
-                self.df.loc[self.df.index[i], 'supertrend_direction'] = 1
-            elif curr['close'] < prev['lowerband']:
-                self.df.loc[self.df.index[i], 'supertrend_direction'] = -1
-            else:
-                self.df.loc[self.df.index[i], 'supertrend_direction'] = prev['supertrend_direction']
-                
-                # Adjust bands based on direction
-                if self.df.loc[self.df.index[i], 'supertrend_direction'] == 1 and curr['lowerband'] < prev['lowerband']:
-                    self.df.loc[self.df.index[i], 'lowerband'] = prev['lowerband']
-                if self.df.loc[self.df.index[i], 'supertrend_direction'] == -1 and curr['upperband'] > prev['upperband']:
-                    self.df.loc[self.df.index[i], 'upperband'] = prev['upperband']
-            
-            # Set supertrend value
-            if self.df.loc[self.df.index[i], 'supertrend_direction'] == 1:
-                self.df.loc[self.df.index[i], 'supertrend'] = self.df.loc[self.df.index[i], 'lowerband']
-            else:
-                self.df.loc[self.df.index[i], 'supertrend'] = self.df.loc[self.df.index[i], 'upperband']
+        # Extract Supertrend components
+        st_prefix = f"SUPERT_{params['period']}_{params['multiplier']}"
+        self.df['supertrend'] = supertrend[st_prefix]
+        self.df['supertrend_direction'] = supertrend[f"{st_prefix}.d"]
         
         # Generate signals
         self.df['supertrend_buy_signal'] = ((self.df['supertrend_direction'].shift(1) == -1) & 
@@ -311,7 +302,7 @@ class TechnicalAnalysis:
         self.indicators_result['supertrend'] = {
             'signal': current_supertrend_signal,
             'values': {
-                'supertrend': round(self.df['supertrend'].iloc[-1], 2),
+                'supertrend': round(self.df['supertrend'].iloc[-1], 2) if not pd.isna(self.df['supertrend'].iloc[-1]) else None,
                 'direction': 'Bullish' if self.df['supertrend_direction'].iloc[-1] == 1 else 'Bearish'
             }
         }
@@ -325,56 +316,24 @@ class TechnicalAnalysis:
             })
 
     def _calculate_parabolic_sar(self):
-        """Calculate Parabolic SAR indicator"""
+        """Calculate Parabolic SAR indicator using pandas-ta"""
         params = config.INDICATORS["parabolic_sar"]
         
-        # Initialize variables
-        af = params['acceleration_factor']
-        max_af = params['max_acceleration_factor']
+        # Calculate PSAR using pandas-ta
+        psar = ta.psar(
+            high=self.df['high'],
+            low=self.df['low'],
+            close=self.df['close'],
+            af=params['acceleration_factor'],
+            max_af=params['max_acceleration_factor']
+        )
         
-        self.df['sar'] = 0.0
-        self.df['bull'] = True
-        self.df['ep'] = self.df['low'].iloc[0]  # Extreme point
-        self.df['af'] = af  # Acceleration factor
+        # Add PSAR components to dataframe
+        self.df['psar'] = psar['PSARl_0.02_0.2']  # PSARl for long positions
+        self.df['psar_short'] = psar['PSARs_0.02_0.2']  # PSARs for short positions
         
-        # Calculate Parabolic SAR
-        for i in range(2, len(self.df)):
-            self.df.loc[self.df.index[i], 'bull'] = True
-            
-            if self.df['bull'].iloc[i-1]:
-                self.df.loc[self.df.index[i], 'sar'] = self.df['sar'].iloc[i-1] + \
-                                                     self.df['af'].iloc[i-1] * \
-                                                     (self.df['ep'].iloc[i-1] - self.df['sar'].iloc[i-1])
-                
-                if self.df['low'].iloc[i] < self.df['sar'].iloc[i]:
-                    self.df.loc[self.df.index[i], 'bull'] = False
-                    self.df.loc[self.df.index[i], 'sar'] = self.df['ep'].iloc[i-1]
-                    self.df.loc[self.df.index[i], 'ep'] = self.df['low'].iloc[i]
-                    self.df.loc[self.df.index[i], 'af'] = af
-                else:
-                    if self.df['high'].iloc[i] > self.df['ep'].iloc[i-1]:
-                        self.df.loc[self.df.index[i], 'ep'] = self.df['high'].iloc[i]
-                        self.df.loc[self.df.index[i], 'af'] = min(self.df['af'].iloc[i-1] + af, max_af)
-                    else:
-                        self.df.loc[self.df.index[i], 'ep'] = self.df['ep'].iloc[i-1]
-                        self.df.loc[self.df.index[i], 'af'] = self.df['af'].iloc[i-1]
-            else:
-                self.df.loc[self.df.index[i], 'sar'] = self.df['sar'].iloc[i-1] - \
-                                                     self.df['af'].iloc[i-1] * \
-                                                     (self.df['sar'].iloc[i-1] - self.df['ep'].iloc[i-1])
-                
-                if self.df['high'].iloc[i] > self.df['sar'].iloc[i]:
-                    self.df.loc[self.df.index[i], 'bull'] = True
-                    self.df.loc[self.df.index[i], 'sar'] = self.df['ep'].iloc[i-1]
-                    self.df.loc[self.df.index[i], 'ep'] = self.df['high'].iloc[i]
-                    self.df.loc[self.df.index[i], 'af'] = af
-                else:
-                    if self.df['low'].iloc[i] < self.df['ep'].iloc[i-1]:
-                        self.df.loc[self.df.index[i], 'ep'] = self.df['low'].iloc[i]
-                        self.df.loc[self.df.index[i], 'af'] = min(self.df['af'].iloc[i-1] + af, max_af)
-                    else:
-                        self.df.loc[self.df.index[i], 'ep'] = self.df['ep'].iloc[i-1]
-                        self.df.loc[self.df.index[i], 'af'] = self.df['af'].iloc[i-1]
+        # Determine trend direction
+        self.df['bull'] = self.df['close'] > self.df['psar']
         
         # Generate signals
         self.df['psar_buy_signal'] = ((self.df['bull'].shift(1) == False) & 
@@ -389,10 +348,13 @@ class TechnicalAnalysis:
         elif self.df['psar_sell_signal'].iloc[-1] == 1:
             current_psar_signal = -1
         
+        # Get current PSAR value (either long or short depending on trend)
+        current_psar = self.df['psar'].iloc[-1] if not pd.isna(self.df['psar'].iloc[-1]) else self.df['psar_short'].iloc[-1]
+        
         self.indicators_result['parabolic_sar'] = {
             'signal': current_psar_signal,
             'values': {
-                'sar': round(self.df['sar'].iloc[-1], 2),
+                'sar': round(current_psar, 2) if not pd.isna(current_psar) else None,
                 'trend': 'Bullish' if self.df['bull'].iloc[-1] else 'Bearish'
             }
         }
@@ -406,15 +368,19 @@ class TechnicalAnalysis:
             })
 
     def _calculate_aroon(self):
-        """Calculate Aroon indicator"""
+        """Calculate Aroon indicator using pandas-ta"""
         params = config.INDICATORS["aroon"]
-        period = params['period']
         
-        # Calculate Aroon Up and Down
-        self.df['aroon_up'] = 100 * self.df['high'].rolling(period + 1).apply(
-            lambda x: x.argmax() / period, raw=True)
-        self.df['aroon_down'] = 100 * self.df['low'].rolling(period + 1).apply(
-            lambda x: x.argmin() / period, raw=True)
+        # Calculate Aroon using pandas-ta
+        aroon = ta.aroon(
+            high=self.df['high'],
+            low=self.df['low'],
+            length=params['period']
+        )
+        
+        # Add Aroon components to dataframe
+        self.df['aroon_up'] = aroon[f"AROONU_{params['period']}"]
+        self.df['aroon_down'] = aroon[f"AROOND_{params['period']}"]
         
         # Generate signals
         self.df['aroon_crossover'] = 0
@@ -452,8 +418,8 @@ class TechnicalAnalysis:
         self.indicators_result['aroon'] = {
             'signal': current_aroon_signal,
             'values': {
-                'aroon_up': round(self.df['aroon_up'].iloc[-1], 2),
-                'aroon_down': round(self.df['aroon_down'].iloc[-1], 2),
+                'aroon_up': round(self.df['aroon_up'].iloc[-1], 2) if not pd.isna(self.df['aroon_up'].iloc[-1]) else None,
+                'aroon_down': round(self.df['aroon_down'].iloc[-1], 2) if not pd.isna(self.df['aroon_down'].iloc[-1]) else None,
                 'strong_uptrend': is_strong_uptrend,
                 'strong_downtrend': is_strong_downtrend
             }
@@ -472,20 +438,14 @@ class TechnicalAnalysis:
             })
 
     def _calculate_rsi(self):
-        """Calculate Relative Strength Index"""
+        """Calculate Relative Strength Index using pandas-ta"""
         params = config.INDICATORS["rsi"]
-        period = params['period']
         
-        # Calculate RSI
-        delta = self.df['close'].diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        
-        avg_gain = gain.rolling(window=period).mean()
-        avg_loss = loss.rolling(window=period).mean()
-        
-        rs = avg_gain / avg_loss
-        self.df['rsi'] = 100 - (100 / (1 + rs))
+        # Calculate RSI using pandas-ta
+        self.df['rsi'] = ta.rsi(
+            close=self.df['close'],
+            length=params['period']
+        )
         
         # Generate signals
         self.df['rsi_buy_signal'] = (self.df['rsi'] < params['oversold']).astype(int)
@@ -501,7 +461,7 @@ class TechnicalAnalysis:
         self.indicators_result['rsi'] = {
             'signal': current_rsi_signal,
             'values': {
-                'rsi': round(self.df['rsi'].iloc[-1], 2),
+                'rsi': round(self.df['rsi'].iloc[-1], 2) if not pd.isna(self.df['rsi'].iloc[-1]) else None,
                 'oversold_threshold': params['oversold'],
                 'overbought_threshold': params['overbought']
             }
@@ -516,21 +476,23 @@ class TechnicalAnalysis:
             })
 
     def _calculate_stochastic(self):
-        """Calculate Stochastic Oscillator"""
+        """Calculate Stochastic Oscillator using pandas-ta"""
         params = config.INDICATORS["stochastic"]
-        k_period = params['k_period']
-        d_period = params['d_period']
         
-        # Calculate %K
-        low_min = self.df['low'].rolling(window=k_period).min()
-        high_max = self.df['high'].rolling(window=k_period).max()
+        # Calculate Stochastic using pandas-ta
+        stoch = ta.stoch(
+            high=self.df['high'],
+            low=self.df['low'],
+            close=self.df['close'],
+            k=params['k_period'],
+            d=params['d_period']
+        )
         
-        self.df['stoch_k'] = 100 * ((self.df['close'] - low_min) / (high_max - low_min))
+        # Add Stochastic components to dataframe
+        self.df['stoch_k'] = stoch[f"STOCHk_{params['k_period']}_{params['d_period']}_{params['d_period']}"]
+        self.df['stoch_d'] = stoch[f"STOCHd_{params['k_period']}_{params['d_period']}_{params['d_period']}"]
         
-        # Calculate %D (SMA of %K)
-        self.df['stoch_d'] = self.df['stoch_k'].rolling(window=d_period).mean()
-        
-        # Generate signals - buy when %K crosses above %D in oversold region
+        # Generate signals
         self.df['stoch_signal'] = 0
         
         # Buy signal: K crosses above D in oversold region
@@ -552,8 +514,8 @@ class TechnicalAnalysis:
         self.indicators_result['stochastic'] = {
             'signal': current_stoch_signal,
             'values': {
-                'k': round(self.df['stoch_k'].iloc[-1], 2),
-                'd': round(self.df['stoch_d'].iloc[-1], 2),
+                'k': round(self.df['stoch_k'].iloc[-1], 2) if not pd.isna(self.df['stoch_k'].iloc[-1]) else None,
+                'd': round(self.df['stoch_d'].iloc[-1], 2) if not pd.isna(self.df['stoch_d'].iloc[-1]) else None,
                 'oversold': params['oversold'],
                 'overbought': params['overbought']
             }
@@ -568,13 +530,14 @@ class TechnicalAnalysis:
             })
 
     def _calculate_rate_of_change(self):
-        """Calculate Rate of Change (ROC)"""
+        """Calculate Rate of Change (ROC) using pandas-ta"""
         params = config.INDICATORS["roc"]
-        period = params['period']
         
-        # Calculate ROC
-        self.df['roc'] = ((self.df['close'] - self.df['close'].shift(period)) / 
-                         self.df['close'].shift(period)) * 100
+        # Calculate ROC using pandas-ta
+        self.df['roc'] = ta.roc(
+            close=self.df['close'],
+            length=params['period']
+        )
         
         # Generate signals
         self.df['roc_crossover'] = 0
@@ -597,7 +560,7 @@ class TechnicalAnalysis:
         self.indicators_result['roc'] = {
             'signal': current_roc_signal,
             'values': {
-                'roc': round(self.df['roc'].iloc[-1], 2),
+                'roc': round(self.df['roc'].iloc[-1], 2) if not pd.isna(self.df['roc'].iloc[-1]) else None,
                 'trend': 'Bullish' if self.df['roc'].iloc[-1] > 0 else 'Bearish'
             }
         }
@@ -611,22 +574,28 @@ class TechnicalAnalysis:
             })
 
     def _calculate_bollinger_bands(self):
-        """Calculate Bollinger Bands"""
+        """Calculate Bollinger Bands using pandas-ta"""
         params = config.INDICATORS["bollinger_bands"]
-        period = params['period']
-        std_dev = params['std_dev']
         
-        # Calculate Bollinger Bands
-        self.df['bb_middle'] = self.df['close'].rolling(window=period).mean()
-        self.df['bb_std'] = self.df['close'].rolling(window=period).std()
+        # Calculate Bollinger Bands using pandas-ta
+        bbands = ta.bbands(
+            close=self.df['close'],
+            length=params['period'],
+            std=params['std_dev']
+        )
         
-        self.df['bb_upper'] = self.df['bb_middle'] + (std_dev * self.df['bb_std'])
-        self.df['bb_lower'] = self.df['bb_middle'] - (std_dev * self.df['bb_std'])
+        # Add Bollinger Bands components to dataframe
+        self.df['bb_lower'] = bbands[f"BBL_{params['period']}_{params['std_dev']}"]
+        self.df['bb_middle'] = bbands[f"BBM_{params['period']}_{params['std_dev']}"]
+        self.df['bb_upper'] = bbands[f"BBU_{params['period']}_{params['std_dev']}"]
         
         # Calculate %B (position within bands)
         self.df['bb_pct_b'] = (self.df['close'] - self.df['bb_lower']) / (self.df['bb_upper'] - self.df['bb_lower'])
         
-        # Generate signals
+        # Generate signals - check for RSI confirmation
+        if 'rsi' not in self.df.columns:
+            self._calculate_rsi()
+            
         self.df['bb_buy_signal'] = ((self.df['close'] <= self.df['bb_lower']) & 
                                   (self.df['rsi'] < 30)).astype(int)
         self.df['bb_sell_signal'] = ((self.df['close'] >= self.df['bb_upper']) & 
@@ -639,14 +608,17 @@ class TechnicalAnalysis:
         elif self.df['bb_sell_signal'].iloc[-1] == 1:
             current_bb_signal = -1
         
+        # Calculate Bollinger Bandwidth (indicator of volatility)
+        bb_bandwidth = (self.df['bb_upper'] - self.df['bb_lower']) / self.df['bb_middle']
+        
         self.indicators_result['bollinger_bands'] = {
             'signal': current_bb_signal,
             'values': {
-                'middle': round(self.df['bb_middle'].iloc[-1], 2),
-                'upper': round(self.df['bb_upper'].iloc[-1], 2),
-                'lower': round(self.df['bb_lower'].iloc[-1], 2),
-                'percent_b': round(self.df['bb_pct_b'].iloc[-1], 2),
-                'width': round((self.df['bb_upper'].iloc[-1] - self.df['bb_lower'].iloc[-1]) / self.df['bb_middle'].iloc[-1], 2)
+                'middle': round(self.df['bb_middle'].iloc[-1], 2) if not pd.isna(self.df['bb_middle'].iloc[-1]) else None,
+                'upper': round(self.df['bb_upper'].iloc[-1], 2) if not pd.isna(self.df['bb_upper'].iloc[-1]) else None,
+                'lower': round(self.df['bb_lower'].iloc[-1], 2) if not pd.isna(self.df['bb_lower'].iloc[-1]) else None,
+                'percent_b': round(self.df['bb_pct_b'].iloc[-1], 2) if not pd.isna(self.df['bb_pct_b'].iloc[-1]) else None,
+                'bandwidth': round(bb_bandwidth.iloc[-1], 2) if not pd.isna(bb_bandwidth.iloc[-1]) else None
             }
         }
         
@@ -659,20 +631,16 @@ class TechnicalAnalysis:
             })
 
     def _calculate_atr(self):
-        """Calculate Average True Range (ATR)"""
+        """Calculate Average True Range (ATR) using pandas-ta"""
         params = config.INDICATORS["atr"]
-        period = params['period']
         
-        # Calculate True Range
-        high_low = self.df['high'] - self.df['low']
-        high_close = abs(self.df['high'] - self.df['close'].shift())
-        low_close = abs(self.df['low'] - self.df['close'].shift())
-        
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = ranges.max(axis=1)
-        
-        # Calculate ATR
-        self.df['atr'] = true_range.rolling(window=period).mean()
+        # Calculate ATR using pandas-ta
+        self.df['atr'] = ta.atr(
+            high=self.df['high'],
+            low=self.df['low'],
+            close=self.df['close'],
+            length=params['period']
+        )
         
         # Calculate stop loss levels
         self.df['atr_buy_stop'] = self.df['close'] - (self.df['atr'] * params['multiplier'])
@@ -689,18 +657,9 @@ class TechnicalAnalysis:
         }
 
     def _calculate_obv(self):
-        """Calculate On-Balance Volume (OBV)"""
-        # Initialize OBV
-        self.df['obv'] = 0
-        
-        # Calculate OBV
-        for i in range(1, len(self.df)):
-            if self.df['close'].iloc[i] > self.df['close'].iloc[i-1]:
-                self.df.loc[self.df.index[i], 'obv'] = self.df['obv'].iloc[i-1] + self.df['volume'].iloc[i]
-            elif self.df['close'].iloc[i] < self.df['close'].iloc[i-1]:
-                self.df.loc[self.df.index[i], 'obv'] = self.df['obv'].iloc[i-1] - self.df['volume'].iloc[i]
-            else:
-                self.df.loc[self.df.index[i], 'obv'] = self.df['obv'].iloc[i-1]
+        """Calculate On-Balance Volume (OBV) using pandas-ta"""
+        # Calculate OBV using pandas-ta
+        self.df['obv'] = ta.obv(self.df['close'], self.df['volume'])
         
         # Calculate OBV moving average
         self.df['obv_ma'] = self.df['obv'].rolling(14).mean()
@@ -744,14 +703,16 @@ class TechnicalAnalysis:
             })
 
     def _calculate_vwap(self):
-        """Calculate Volume Weighted Average Price (VWAP)"""
-        # Calculate VWAP
+        """Calculate Volume Weighted Average Price (VWAP) using pandas-ta"""
+        # Calculate typical price
         typical_price = (self.df['high'] + self.df['low'] + self.df['close']) / 3
         volume_price = typical_price * self.df['volume']
         
+        # Calculate cumulative values
         cumulative_volume_price = volume_price.cumsum()
         cumulative_volume = self.df['volume'].cumsum()
         
+        # Calculate VWAP
         self.df['vwap'] = cumulative_volume_price / cumulative_volume
         
         # Generate signals
@@ -1050,28 +1011,29 @@ class TechnicalAnalysis:
                 cup_start = mid_point - 50
                 cup_end = mid_point
                 
-                start_price = self.df['close'].iloc[cup_start]
-                end_price = self.df['close'].iloc[cup_end]
-                
-                # Price should be similar at start and end of cup
-                if abs(start_price - end_price) / start_price < 0.05:
-                    # Check for a dip in the middle
-                    middle_min = self.df['low'].iloc[cup_start:cup_end].min()
-                    if middle_min < 0.9 * start_price:
-                        # Look for a smaller pullback (handle)
-                        handle_start = cup_end
-                        handle_end = len(self.df) - 1
-                        
-                        handle_low = self.df['low'].iloc[handle_start:handle_end].min()
-                        
-                        # Handle should not go as low as the cup
-                        if handle_low > middle_min:
-                            # Check if price recently broke the cup level
-                            if self.df['close'].iloc[-1] > start_price:
-                                                                patterns['cup_and_handle'] = {
-                                    'signal': 1,  # Buy signal
-                                    'strength': 4
-                                }
+                if cup_start >= 0:  # Ensure we have enough data
+                    start_price = self.df['close'].iloc[cup_start]
+                    end_price = self.df['close'].iloc[cup_end]
+                    
+                    # Price should be similar at start and end of cup
+                    if abs(start_price - end_price) / start_price < 0.05:
+                        # Check for a dip in the middle
+                        middle_min = self.df['low'].iloc[cup_start:cup_end].min()
+                        if middle_min < 0.9 * start_price:
+                            # Look for a smaller pullback (handle)
+                            handle_start = cup_end
+                            handle_end = len(self.df) - 1
+                            
+                            handle_low = self.df['low'].iloc[handle_start:handle_end].min()
+                            
+                            # Handle should not go as low as the cup
+                            if handle_low > middle_min:
+                                # Check if price recently broke the cup level
+                                if self.df['close'].iloc[-1] > start_price:
+                                    patterns['cup_and_handle'] = {
+                                        'signal': 1,  # Buy signal
+                                        'strength': 4
+                                    }
         
         self.patterns_result['chart'] = patterns
         
@@ -1124,24 +1086,17 @@ class TelegramSender:
         """Initialize Telegram sender with bot token and chat ID"""
         self.token = token
         self.chat_id = chat_id
-        self.base_url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+        self.bot = telegram.Bot(token=token)
     
-    def send_message(self, text, parse_mode="Markdown"):
+    def send_message(self, text):
         """Send message to Telegram chat"""
         try:
-            payload = {
-                'chat_id': self.chat_id,
-                'text': text,
-                'parse_mode': parse_mode
-            }
-            
-            response = requests.post(self.base_url, data=payload)
-            if response.status_code != 200:
-                logger.error(f"Failed to send Telegram message: {response.text}")
-                return False
-            
+            self.bot.send_message(
+                chat_id=self.chat_id,
+                text=text,
+                parse_mode='Markdown'
+            )
             return True
-        
         except Exception as e:
             logger.error(f"Error sending Telegram message: {str(e)}")
             return False
@@ -1172,8 +1127,8 @@ class TradingSignalBot:
                     logger.error(f"Failed to get details for instrument: {instrument_key}")
                     continue
                 
-                stock_name = instrument_details.name
-                stock_symbol = instrument_details.tradingsymbol
+                stock_name = instrument_details['name']
+                stock_symbol = instrument_details['tradingsymbol']
                 
                 logger.info(f"Analyzing {stock_name} ({stock_symbol})")
                 
