@@ -12,7 +12,12 @@ import traceback
 import schedule
 import asyncio
 from upstox_client.models.ohlc import Ohlc as OHLCInterval
-from aiogram import Bot
+try:
+    from aiogram import Bot, Dispatcher
+except ImportError:
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "aiogram"])
+    from aiogram import Bot, Dispatcher
 from config import *
 from compute import *
 
@@ -31,21 +36,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize Upstox client
 def initialize_upstox():
     try:
         # Directly use the access token
         access_token = UPSTOX_ACCESS_TOKEN  # Ensure this is set in your config
-        return access_token
+        upstox_client = Upstox(UPSTOX_API_KEY, access_token)
+        return upstox_client
     except Exception as e:
         logger.error(f"Authentication error: {e}")
         return None
 
-# Telegram notification function
-async def send_telegram_message(message):
+# Telegram notification function with retry mechanism
+async def send_telegram_message(message, retry_attempts=5):
     if ENABLE_TELEGRAM_ALERTS:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-        await bot.close()
+        for attempt in range(retry_attempts):
+            try:
+                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+                break
+            except Exception as e:
+                if "Too Many Requests" in str(e):
+                    retry_after = int(str(e).split("retry after ")[-1].split()[0])
+                    logger.error(f"Error sending Telegram message: {e}. Retrying in {retry_after} seconds.")
+                    await asyncio.sleep(retry_after)
+                else:
+                    logger.error(f"Error sending Telegram message: {e}")
+                    break
+        await bot.session.close()  # Ensure the session is properly closed
 
 def send_startup_notification():
     """Send a startup notification via Telegram"""
@@ -89,7 +107,7 @@ async def analyze_and_generate_signals():
     end_date = datetime.datetime.now().strftime('%Y-%m-%d')
 
     # Example for NIFTY 200 stocks
-    symbols = ["RELIANCE", "TCS", "INFY"]  # Replace with actual NIFTY 200 symbols
+    symbols = STOCK_LIST  # Replace with actual NIFTY 200 symbols
 
     for symbol in symbols:
         data = fetch_ohlcv_data(symbol, start_date, end_date)
@@ -147,8 +165,8 @@ def test_upstox_connection():
     logger.info("Testing Upstox API connection...")
     
     try:
-        client = initialize_upstox()
-        if client:
+        upstox_client = initialize_upstox()
+        if upstox_client:
             logger.info("✅ Successfully authenticated with Upstox API")
             return True
         else:
