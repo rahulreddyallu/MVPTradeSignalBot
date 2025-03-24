@@ -13,8 +13,8 @@ import logging
 import telegram
 from telegram.ext import Updater
 import requests
-from upstox.session import Session
-from upstox.client import Client
+import upstox
+from upstox import client as upstox_client
 import config
 
 # Setup logging
