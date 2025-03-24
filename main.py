@@ -41,8 +41,7 @@ def initialize_upstox():
     try:
         # Directly use the access token
         access_token = UPSTOX_ACCESS_TOKEN  # Ensure this is set in your config
-        upstox_client = Upstox(UPSTOX_API_KEY, access_token)
-        return upstox_client
+        return access_token
     except Exception as e:
         logger.error(f"Authentication error: {e}")
         return None
@@ -51,6 +50,7 @@ def initialize_upstox():
 async def send_telegram_message(message, retry_attempts=5):
     if ENABLE_TELEGRAM_ALERTS:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        delay = 1  # Initial delay in seconds
         for attempt in range(retry_attempts):
             try:
                 await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
@@ -61,8 +61,9 @@ async def send_telegram_message(message, retry_attempts=5):
                     logger.error(f"Error sending Telegram message: {e}. Retrying in {retry_after} seconds.")
                     await asyncio.sleep(retry_after)
                 else:
-                    logger.error(f"Error sending Telegram message: {e}")
-                    break
+                    logger.error(f"Error sending Telegram message: {e}. Retrying in {delay} seconds.")
+                    await asyncio.sleep(delay)
+                    delay *= 2  # Exponential backoff
         await bot.session.close()  # Ensure the session is properly closed
 
 def send_startup_notification():
