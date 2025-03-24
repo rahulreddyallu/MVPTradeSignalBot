@@ -7,7 +7,7 @@ Contains all parameters, credentials and settings
 UPSTOX_API_KEY = "ad55de1b-c7d1-4adc-b559-3830bf1efd72"
 UPSTOX_API_SECRET = "Y969nyjgapm"
 UPSTOX_REDIRECT_URI = "https://localhost"
-UPSTOX_CODE = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0TEFGUDkiLCJqdGkiOiI2N2UxOGQ3NWFjNGE0MzIwMzk3MDU5MTMiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaWF0IjoxNzQyODM1MDYxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NDI4NTM2MDB9.MVurEdapsDviJ8gJ5f2nnPv4a-xmgEvXreaZvJsVU5w"  # Generated during login flow
+UPSTOX_CODE = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI0TEFGUDkiLCJqdGkiOiI2N2UxOGQ3NWFjNGE0MzIwMzk3MDU5MTMiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaWF0IjoxNzQyODM1MDYxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NDI4NTM2MDB9.MVurEdapsDviJ8gJ5f2nnPv4a-xmgEvXreaZvJsVU5w"
 
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = "7209852741:AAEf-_f6TeZK1-_R55yq365iU_54rk95y-c"
@@ -16,7 +16,11 @@ TELEGRAM_CHAT_ID = "936205208"
 # Stock Universe
 # List of NIFTY 200 stocks to analyze (instrument IDs from Upstox)
 STOCK_LIST = [
-   "RELIANCE", "HDFCBANK", "TCS", "BHARTIARTL", "ICICIBANK", "SBIN"
+    "NSE_EQ|INE009A01021",  # INFOSYS
+    "NSE_EQ|INE030A01027",  # TCS
+    "NSE_EQ|INE397D01024",  # SBIN
+    "NSE_EQ|INE062A01020",  # HDFC BANK
+    "NSE_EQ|INE528G01035","HINDUNILVR", "ITC", "LICI", "LT", "SUNPHARMA", "HCLTECH", "KOTAKBANK"  # RELIANCE INDUSTRIES
     # Add more NIFTY 200 stocks here
 ]
 
@@ -52,7 +56,7 @@ INDICATORS = {
     },
     "aroon": {
         "period": 25,
-        "uptrend_threshold": 50,
+        "uptrend_threshold": 70,
         "downtrend_threshold": 30
     },
     
@@ -85,9 +89,9 @@ INDICATORS = {
 
 # Signal Thresholds
 SIGNAL_STRENGTH = {
-    "weak": 1,     # One indicator showing buy/sell
-    "moderate": 2, # Two indicators showing buy/sell
-    "strong": 3,   # Three or more indicators showing buy/sell
+    "weak": 1,      # One indicator showing buy/sell
+    "moderate": 2,  # Two indicators showing buy/sell
+    "strong": 3,    # Three or more indicators showing buy/sell
     "very_strong": 5  # Five or more indicators showing buy/sell
 }
 
@@ -139,3 +143,5 @@ SIGNAL_MESSAGE_TEMPLATE = """
 
 *Generated:* {timestamp}
 """
+
+# Date/Time last updated: 2025-03-24 17:40
