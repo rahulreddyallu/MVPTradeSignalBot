@@ -102,7 +102,7 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
     Parameters:
     -----------
     market_api : object
-        Initialized Upstox API client
+        Initialized Upstox API client that has a history_api attribute
     symbol : str
         Symbol/instrument key (e.g., 'NSE_EQ:NHPC')
     start_date : str
@@ -111,12 +111,6 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
         End date in 'YYYY-MM-DD' format
     interval : str, optional
         Candle interval ('1minute', '30minute', 'day', 'week', 'month')
-        
-    Returns:
-    --------
-    pandas.DataFrame
-        DataFrame containing historical OHLC data with columns:
-        ['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI']
     """
     try:
         # Validate dates
@@ -133,24 +127,24 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
             logger.error(f"Invalid interval: {interval}. Must be one of {valid_intervals}")
             return pd.DataFrame()
         
-        logger.info(f"Fetching historical data for {symbol} from {start_date} to {end_date} with {interval} interval")
+        # Normalize symbol format (replace pipe with colon if needed)
+        normalized_symbol = symbol.replace("|", ":")
         
-        # Use the correct history API method based on whether we need a from_date
-        if start_date:
-            response = HistoryApi.get_historical_candle_data1(
-                instrument_key=symbol,
-                interval=interval,
-                to_date=end_date,
-                from_date=start_date,
-                api_version="2.0"
-            )
-        else:
-            response = HistoryApi.get_historical_candle_data(
-                instrument_key=symbol,
-                interval=interval,
-                to_date=end_date,
-                api_version="2.0"
-            )
+        logger.info(f"Fetching historical data for {normalized_symbol} from {start_date} to {end_date} with {interval} interval")
+        
+        # Create a history API instance if needed
+        if not hasattr(market_api, 'history_api'):
+            from upstox_client.api.history_api import HistoryApi
+            market_api.history_api = HistoryApi(market_api.api_client)
+        
+        # Use the history_api instance to make the API call
+        response = market_api.history_api.get_historical_candle_data1(
+            instrument_key=normalized_symbol,
+            interval=interval,
+            to_date=end_date,
+            from_date=start_date,
+            api_version="2.0"
+        )
         
         # Extract data from the response
         if hasattr(response, 'data') and 'candles' in response.data:
@@ -175,17 +169,18 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
             # Sort by timestamp (oldest to newest)
             df.sort_index(inplace=True)
             
-            logger.info(f"Successfully fetched {len(df)} candles for {symbol}")
+            logger.info(f"Successfully fetched {len(df)} candles for {normalized_symbol}")
             return df
         else:
-            logger.error(f"No candle data returned for {symbol}")
+            logger.error(f"No candle data returned for {normalized_symbol}")
+            if hasattr(response, 'status'):
+                logger.error(f"API status: {response.status}")
             return pd.DataFrame()
             
     except Exception as e:
         logger.error(f"Error fetching historical OHLC data: {e}")
-        # Add more detailed error info to help debug API issues
-        if hasattr(e, 'body') and getattr(e, 'body', None):
-            logger.error(f"API error details: {e.body}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return pd.DataFrame()
 
 async def analyze_and_generate_signals():
