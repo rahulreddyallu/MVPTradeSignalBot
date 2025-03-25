@@ -137,7 +137,7 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
         
         # Use the correct history API method based on whether we need a from_date
         if start_date:
-            response = market_api.get_historical_candle_data1(
+            response = HistoryApi.get_historical_candle_data1(
                 instrument_key=symbol,
                 interval=interval,
                 to_date=end_date,
@@ -145,7 +145,7 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
                 api_version="2.0"
             )
         else:
-            response = market_api.get_historical_candle_data(
+            response = HistoryApi.get_historical_candle_data(
                 instrument_key=symbol,
                 interval=interval,
                 to_date=end_date,
