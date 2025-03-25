@@ -22,6 +22,7 @@ except ImportError:
 
 from upstox_client.api_client import ApiClient
 from upstox_client.api.market_quote_api import MarketQuoteApi  # Correct import
+from upstox_client.api.history_api import HistoryApi
 from config import *
 from compute import *
 
@@ -94,46 +95,107 @@ Bot is now actively monitoring for trading signals.
     except Exception as e:
         logger.error(f"Failed to send startup notification: {str(e)}")
 
-def fetch_ohlcv_data(market_api, symbol, start_date, end_date):
-    try:
-        # Convert dates to epoch if needed for the API
-        from_epoch = int(time.mktime(datetime.datetime.strptime(start_date, "%Y-%m-%d").timetuple()))
-        to_epoch = int(time.mktime(datetime.datetime.strptime(end_date, "%Y-%m-%d").timetuple()))
+def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
+    """
+    Fetch historical OHLC data for a given symbol using the Upstox API.
+    
+    Parameters:
+    -----------
+    market_api : object
+        Initialized Upstox API client
+    symbol : str
+        Symbol/instrument key (e.g., 'NSE_EQ:NHPC')
+    start_date : str
+        Start date in 'YYYY-MM-DD' format
+    end_date : str
+        End date in 'YYYY-MM-DD' format
+    interval : str, optional
+        Candle interval ('1minute', '30minute', 'day', 'week', 'month')
         
-        # Fixed: Use the correct API method get_market_quote_ohlc instead of get_ohlc
-        ohlc_response = market_api.get_market_quote_ohlc(
-            symbol=symbol,
-            interval="1d",  # Equivalent to OHLCInterval.DAY_1
-            api_version="2.0"
-        )
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame containing historical OHLC data with columns:
+        ['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI']
+    """
+    try:
+        # Validate dates
+        try:
+            datetime.datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError as e:
+            logger.error(f"Invalid date format: {e}")
+            return pd.DataFrame()
+        
+        # Validate interval
+        valid_intervals = ['1minute', '30minute', 'day', 'week', 'month']
+        if interval not in valid_intervals:
+            logger.error(f"Invalid interval: {interval}. Must be one of {valid_intervals}")
+            return pd.DataFrame()
+        
+        logger.info(f"Fetching historical data for {symbol} from {start_date} to {end_date} with {interval} interval")
+        
+        # Use the correct history API method based on whether we need a from_date
+        if start_date:
+            response = market_api.get_historical_candle_data1(
+                instrument_key=symbol,
+                interval=interval,
+                to_date=end_date,
+                from_date=start_date,
+                api_version="2.0"
+            )
+        else:
+            response = market_api.get_historical_candle_data(
+                instrument_key=symbol,
+                interval=interval,
+                to_date=end_date,
+                api_version="2.0"
+            )
         
         # Extract data from the response
-        if hasattr(ohlc_response, 'data') and symbol in ohlc_response.data:
-            candles_data = ohlc_response.data[symbol]['candles']
+        if hasattr(response, 'data') and 'candles' in response.data:
+            candles_data = response.data['candles']
             
-            # Create DataFrame maintaining the same column structure as expected by existing code
-            df = pd.DataFrame(candles_data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            # Rename to match the expected capitalization
-            df.rename(columns={
-                'open': 'Open',
-                'high': 'High', 
-                'low': 'Low', 
-                'close': 'Close', 
-                'volume': 'Volume'
-            }, inplace=True)
+            # Create DataFrame with proper column names
+            df = pd.DataFrame(candles_data, columns=[
+                'timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'OI'
+            ])
             
+            # Convert timestamp to datetime
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+            # Set timestamp as index
+            df.set_index('timestamp', inplace=True)
+            
+            # Ensure numeric types for all columns
+            numeric_columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'OI']
+            for col in numeric_columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # Sort by timestamp (oldest to newest)
+            df.sort_index(inplace=True)
+            
+            logger.info(f"Successfully fetched {len(df)} candles for {symbol}")
             return df
         else:
-            logger.error(f"No data returned for {symbol}")
+            logger.error(f"No candle data returned for {symbol}")
             return pd.DataFrame()
             
     except Exception as e:
-        logger.error(f"Error fetching OHLCV data: {e}")
+        logger.error(f"Error fetching historical OHLC data: {e}")
+        # Add more detailed error info to help debug API issues
+        if hasattr(e, 'body') and getattr(e, 'body', None):
+            logger.error(f"API error details: {e.body}")
         return pd.DataFrame()
 
 async def analyze_and_generate_signals():
-    start_date = (datetime.datetime.now() - datetime.timedelta(days=HISTORICAL_DAYS)).strftime('%Y-%m-%d')
+    """
+    Fetches historical data for symbols in STOCK_LIST, performs technical analysis,
+    and generates trading signals.
+    """
+    # Calculate date range (e.g., last 100 days)
     end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.datetime.now() - datetime.timedelta(days=HISTORICAL_DAYS)).strftime('%Y-%m-%d')
 
     market_api = initialize_upstox()
     if not market_api:
@@ -141,25 +203,42 @@ async def analyze_and_generate_signals():
         return
 
     for symbol in STOCK_LIST:
-        data = fetch_ohlcv_data(market_api, symbol, start_date, end_date)
+        # Fetch historical data with daily interval
+        data = fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day")
+        
         if data.empty:
-            logger.error(f"No data fetched for {symbol}")
+            logger.error(f"No historical data fetched for {symbol}")
             continue
-
-        data['EMA_SHORT'] = calculate_ema(data['Close'], EMA_SHORT)
-        data['EMA_LONG'] = calculate_ema(data['Close'], EMA_LONG)
-        data['RSI'] = calculate_rsi(data['Close'], RSI_PERIOD)
-        data['MACD'], data['MACD_SIGNAL'] = calculate_macd(data['Close'], MACD_FAST, MACD_SLOW, MACD_SIGNAL)
-        data['BB_UPPER'], data['BB_LOWER'] = calculate_bollinger_bands(data['Close'], BB_PERIOD, BB_STDDEV)
-        data['SUPERTREND'] = calculate_supertrend(data, SUPERTREND_PERIOD, SUPERTREND_MULTIPLIER)
-        data['ADX'] = calculate_adx(data, ADX_PERIOD)
-        data['VWAP'] = calculate_vwap(data)
-
-        signals = generate_signals(data)
-
-        for signal in signals:
-            message = f"{signal}\nsymbol: {symbol}\nPrice: {data['Close'].iloc[-1]}"
-            await send_telegram_message(message)
+        
+        logger.info(f"Analyzing {symbol} with {len(data)} data points")
+        
+        # Calculate technical indicators
+        try:
+            data['EMA_SHORT'] = calculate_ema(data['Close'], EMA_SHORT)
+            data['EMA_LONG'] = calculate_ema(data['Close'], EMA_LONG)
+            data['RSI'] = calculate_rsi(data['Close'], RSI_PERIOD)
+            data['MACD'], data['MACD_SIGNAL'] = calculate_macd(data['Close'], MACD_FAST, MACD_SLOW, MACD_SIGNAL)
+            data['BB_UPPER'], data['BB_LOWER'] = calculate_bollinger_bands(data['Close'], BB_PERIOD, BB_STDDEV)
+            data['SUPERTREND'] = calculate_supertrend(data, SUPERTREND_PERIOD, SUPERTREND_MULTIPLIER)
+            data['ADX'] = calculate_adx(data, ADX_PERIOD)
+            data['VWAP'] = calculate_vwap(data)
+            
+            # Generate signals based on technical indicators
+            signals = generate_signals(data)
+            
+            # Send signals via Telegram
+            for signal in signals:
+                message = (
+                    f"{signal}\n"
+                    f"Symbol: {symbol}\n"
+                    f"Current Price: {data['Close'].iloc[-1]:.2f}\n"
+                    f"Date: {data.index[-1].strftime('%Y-%m-%d')}"
+                )
+                await send_telegram_message(message)
+                
+        except Exception as e:
+            logger.error(f"Error analyzing {symbol}: {e}")
+            continue
 
 def run_trading_signals():
     """Run the trading signal generation process"""
