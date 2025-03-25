@@ -98,19 +98,6 @@ Bot is now actively monitoring for trading signals.
 def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
     """
     Fetch historical OHLC data for a given symbol using the Upstox API.
-    
-    Parameters:
-    -----------
-    market_api : object
-        Initialized Upstox API client
-    symbol : str
-        Symbol/instrument key (e.g., 'NSE_EQ:NHPC')
-    start_date : str
-        Start date in 'YYYY-MM-DD' format
-    end_date : str
-        End date in 'YYYY-MM-DD' format
-    interval : str, optional
-        Candle interval ('1minute', '30minute', 'day', 'week', 'month')
     """
     try:
         # Validate dates
@@ -142,9 +129,9 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
             api_version="2.0"
         )
         
-        # Extract data from the response
-        if hasattr(response, 'data') and 'candles' in response.data:
-            candles_data = response.data['candles']
+        # Extract data from the response - handling HistoricalCandleData object
+        if hasattr(response, 'data') and hasattr(response.data, 'candles'):
+            candles_data = response.data.candles
             
             # Create DataFrame with proper column names
             df = pd.DataFrame(candles_data, columns=[
@@ -171,6 +158,10 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
             logger.error(f"No candle data returned for {symbol}")
             if hasattr(response, 'status'):
                 logger.error(f"API status: {response.status}")
+            if hasattr(response, 'data'):
+                logger.error(f"Response data type: {type(response.data)}")
+                # List all attributes of the data object
+                logger.error(f"Response data attributes: {dir(response.data)}")
             return pd.DataFrame()
             
     except Exception as e:
