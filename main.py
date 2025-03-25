@@ -127,9 +127,6 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
             logger.error(f"Invalid interval: {interval}. Must be one of {valid_intervals}")
             return pd.DataFrame()
         
-        # Normalize symbol format if needed (convert pipes to colons)
-        symbol = symbol.replace("|", ":")
-        
         logger.info(f"Fetching historical data for {symbol} from {start_date} to {end_date} with {interval} interval")
         
         # Create a HistoryApi instance
