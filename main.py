@@ -96,10 +96,37 @@ Bot is now actively monitoring for trading signals.
 
 def fetch_ohlcv_data(market_api, symbol, start_date, end_date):
     try:
-        # Fetch OHLCV data
-        ohlcv_data = market_api.get_ohlc(symbol, OHLCInterval.DAY_1, start_date, end_date)
-        df = pd.DataFrame(ohlcv_data)
-        return df
+        # Convert dates to epoch if needed for the API
+        from_epoch = int(time.mktime(datetime.datetime.strptime(start_date, "%Y-%m-%d").timetuple()))
+        to_epoch = int(time.mktime(datetime.datetime.strptime(end_date, "%Y-%m-%d").timetuple()))
+        
+        # Fixed: Use the correct API method get_market_quote_ohlc instead of get_ohlc
+        ohlc_response = market_api.get_market_quote_ohlc(
+            symbol=symbol,
+            interval="1day",  # Equivalent to OHLCInterval.DAY_1
+            api_version="2.0"
+        )
+        
+        # Extract data from the response
+        if hasattr(ohlc_response, 'data') and symbol in ohlc_response.data:
+            candles_data = ohlc_response.data[symbol]['candles']
+            
+            # Create DataFrame maintaining the same column structure as expected by existing code
+            df = pd.DataFrame(candles_data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            # Rename to match the expected capitalization
+            df.rename(columns={
+                'open': 'Open',
+                'high': 'High', 
+                'low': 'Low', 
+                'close': 'Close', 
+                'volume': 'Volume'
+            }, inplace=True)
+            
+            return df
+        else:
+            logger.error(f"No data returned for {symbol}")
+            return pd.DataFrame()
+            
     except Exception as e:
         logger.error(f"Error fetching OHLCV data: {e}")
         return pd.DataFrame()
@@ -212,14 +239,14 @@ def schedule_analysis():
     schedule.every().monday.at("09:15").do(run_trading_signals)
     schedule.every().tuesday.at("09:15").do(run_trading_signals)
     schedule.every().wednesday.at("09:15").do(run_trading_signals)
-    schedule.every.thursday.at("09:15").do(run_trading_signals)
-    schedule.every.friday.at("09:15").do(run_trading_signals)
+    schedule.every().thursday.at("09:15").do(run_trading_signals)
+    schedule.every().friday.at("09:15").do(run_trading_signals)
     
-    schedule.every.monday.at("15:30").do(run_trading_signals)
-    schedule.every.tuesday.at("15:30").do(run_trading_signals)
-    schedule.every.wednesday.at("15:30").do(run_trading_signals)
-    schedule.every.thursday.at("15:30").do(run_trading_signals)
-    schedule.every.friday.at("15:30").do(run_trading_signals)
+    schedule.every().monday.at("15:30").do(run_trading_signals)
+    schedule.every().tuesday.at("15:30").do(run_trading_signals)
+    schedule.every().wednesday.at("15:30").do(run_trading_signals)
+    schedule.every().thursday.at("15:30").do(run_trading_signals)
+    schedule.every().friday.at("15:30").do(run_trading_signals)
     
     logger.info(f"Analysis scheduled during market hours (9:00 AM - 3:30 PM) on weekdays")
     
