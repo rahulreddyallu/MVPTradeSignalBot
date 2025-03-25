@@ -102,7 +102,7 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
     Parameters:
     -----------
     market_api : object
-        Initialized Upstox API client that has a history_api attribute
+        Initialized Upstox API client
     symbol : str
         Symbol/instrument key (e.g., 'NSE_EQ:NHPC')
     start_date : str
@@ -127,19 +127,18 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
             logger.error(f"Invalid interval: {interval}. Must be one of {valid_intervals}")
             return pd.DataFrame()
         
-        # Normalize symbol format (replace pipe with colon if needed)
-        normalized_symbol = symbol.replace("|", ":")
+        # Normalize symbol format if needed (convert pipes to colons)
+        symbol = symbol.replace("|", ":")
         
-        logger.info(f"Fetching historical data for {normalized_symbol} from {start_date} to {end_date} with {interval} interval")
+        logger.info(f"Fetching historical data for {symbol} from {start_date} to {end_date} with {interval} interval")
         
-        # Create a history API instance if needed
-        if not hasattr(market_api, 'history_api'):
-            from upstox_client.api.history_api import HistoryApi
-            market_api.history_api = HistoryApi(market_api.api_client)
+        # Create a HistoryApi instance
+        from upstox_client.api.history_api import HistoryApi
+        history_api = HistoryApi(market_api.api_client)
         
-        # Use the history_api instance to make the API call
-        response = market_api.history_api.get_historical_candle_data1(
-            instrument_key=normalized_symbol,
+        # Call the method on the HistoryApi instance
+        response = history_api.get_historical_candle_data1(
+            instrument_key=symbol,
             interval=interval,
             to_date=end_date,
             from_date=start_date,
@@ -169,10 +168,10 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
             # Sort by timestamp (oldest to newest)
             df.sort_index(inplace=True)
             
-            logger.info(f"Successfully fetched {len(df)} candles for {normalized_symbol}")
+            logger.info(f"Successfully fetched {len(df)} candles for {symbol}")
             return df
         else:
-            logger.error(f"No candle data returned for {normalized_symbol}")
+            logger.error(f"No candle data returned for {symbol}")
             if hasattr(response, 'status'):
                 logger.error(f"API status: {response.status}")
             return pd.DataFrame()
@@ -188,27 +187,42 @@ async def analyze_and_generate_signals():
     Fetches historical data for symbols in STOCK_LIST, performs technical analysis,
     and generates trading signals.
     """
-    # Calculate date range (e.g., last 100 days)
-    end_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.datetime.now() - datetime.timedelta(days=HISTORICAL_DAYS)).strftime('%Y-%m-%d')
+    # Log function start
+    current_datetime = datetime.datetime.now()
+    logger.info(f"Starting analysis at {current_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Calculate date range (based on HISTORICAL_DAYS constant)
+    end_date = current_datetime.strftime('%Y-%m-%d')
+    start_date = (current_datetime - datetime.timedelta(days=HISTORICAL_DAYS)).strftime('%Y-%m-%d')
+    logger.info(f"Analyzing data from {start_date} to {end_date}")
 
+    # Initialize Upstox API client
     market_api = initialize_upstox()
     if not market_api:
         logger.error("Failed to initialize Upstox client")
         return
+    
+    # Track overall statistics
+    successful_analyses = 0
+    failed_analyses = 0
+    total_signals = 0
 
+    # Process each symbol in STOCK_LIST
     for symbol in STOCK_LIST:
-        # Fetch historical data with daily interval
-        data = fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day")
+        logger.info(f"Processing symbol: {symbol}")
         
-        if data.empty:
-            logger.error(f"No historical data fetched for {symbol}")
-            continue
-        
-        logger.info(f"Analyzing {symbol} with {len(data)} data points")
-        
-        # Calculate technical indicators
         try:
+            # Fetch historical data with daily interval
+            data = fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day")
+            
+            if data.empty:
+                logger.error(f"No historical data fetched for {symbol}")
+                failed_analyses += 1
+                continue
+            
+            logger.info(f"Analyzing {symbol} with {len(data)} data points")
+            
+            # Calculate technical indicators
             data['EMA_SHORT'] = calculate_ema(data['Close'], EMA_SHORT)
             data['EMA_LONG'] = calculate_ema(data['Close'], EMA_LONG)
             data['RSI'] = calculate_rsi(data['Close'], RSI_PERIOD)
@@ -221,19 +235,43 @@ async def analyze_and_generate_signals():
             # Generate signals based on technical indicators
             signals = generate_signals(data)
             
-            # Send signals via Telegram
-            for signal in signals:
-                message = (
-                    f"{signal}\n"
-                    f"Symbol: {symbol}\n"
-                    f"Current Price: {data['Close'].iloc[-1]:.2f}\n"
-                    f"Date: {data.index[-1].strftime('%Y-%m-%d')}"
-                )
-                await send_telegram_message(message)
+            if signals:
+                logger.info(f"Generated {len(signals)} signals for {symbol}")
+                total_signals += len(signals)
+                
+                # Send signals via Telegram
+                for signal in signals:
+                    message = (
+                        f"📊 {signal}\n"
+                        f"Symbol: {symbol}\n"
+                        f"Current Price: {data['Close'].iloc[-1]:.2f}\n"
+                        f"Date: {data.index[-1].strftime('%Y-%m-%d')}\n\n"
+                        f"Technical Indicators:\n"
+                        f"RSI: {data['RSI'].iloc[-1]:.2f}\n"
+                        f"MACD: {data['MACD'].iloc[-1]:.2f}\n"
+                        f"EMA (Short): {data['EMA_SHORT'].iloc[-1]:.2f}\n"
+                        f"EMA (Long): {data['EMA_LONG'].iloc[-1]:.2f}\n"
+                        f"ADX: {data['ADX'].iloc[-1]:.2f}\n"
+                    )
+                    await send_telegram_message(message)
+                    logger.info(f"Sent signal for {symbol}: {signal}")
+            else:
+                logger.info(f"No signals generated for {symbol}")
+            
+            successful_analyses += 1
                 
         except Exception as e:
             logger.error(f"Error analyzing {symbol}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            failed_analyses += 1
             continue
+    
+    # Log summary statistics
+    logger.info(f"Analysis completed. Processed {len(STOCK_LIST)} symbols.")
+    logger.info(f"Successful analyses: {successful_analyses}")
+    logger.info(f"Failed analyses: {failed_analyses}")
+    logger.info(f"Total signals generated: {total_signals}")
 
 def run_trading_signals():
     """Run the trading signal generation process"""
