@@ -21,7 +21,6 @@ except ImportError:
     from aiogram import Bot, Dispatcher
 
 from upstox_client.api_client import ApiClient
-from upstox_client.api.login_api import LoginApi
 from upstox_client.api.market_quote_api import MarketQuoteApi  # Correct import
 from config import *
 from compute import *
@@ -45,24 +44,12 @@ logger = logging.getLogger(__name__)
 def initialize_upstox():
     try:
         api_client = ApiClient()
-        login_api = LoginApi(api_client)
-        # Assuming you have the client_id and other necessary details
-        client_id = UPSTOX_API_KEY
-        redirect_uri = "your_redirect_uri"  # Replace with your redirect URI
-        api_version = "v2"
-
-        # This will just return the authorization URL
-        # In a real application, you'd need to handle the OAuth flow manually
-        auth_url = login_api.authorize(client_id, redirect_uri, api_version)
-        logger.info(f"Authorization URL: {auth_url}")
-
-        # Assuming you have the access token after the OAuth flow
         api_client.configuration.access_token = UPSTOX_ACCESS_TOKEN
         market_api = MarketQuoteApi(api_client)
-        logger.info("✅ Successfully authenticated with Upstox API")
+        logger.info("✅ Successfully initialized Upstox API client")
         return market_api
     except Exception as e:
-        logger.error(f"Authentication error: {e}")
+        logger.error(f"Error initializing Upstox API client: {e}")
         return None
 
 # Telegram notification function with exponential backoff retry mechanism
@@ -184,10 +171,10 @@ def test_upstox_connection():
     try:
         market_api = initialize_upstox()
         if market_api:
-            logger.info("✅ Successfully authenticated with Upstox API")
+            logger.info("✅ Successfully initialized Upstox API client")
             return True
         else:
-            logger.error("❌ Failed to authenticate with Upstox API")
+            logger.error("❌ Failed to initialize Upstox API client")
             return False
     except Exception as e:
         logger.error(f"❌ Error connecting to Upstox API: {str(e)}")
