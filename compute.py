@@ -13,8 +13,9 @@ import logging
 import telegram
 from telegram.ext import Updater
 import requests
-import upstox_client
-from upstox_client import ApiClient
+from upstox_client.api_client import ApiClient
+from upstox_client.api.login_api import LoginApi
+from upstox_client.api.market_api import MarketApi
 import config
 
 # Setup logging
@@ -37,11 +38,23 @@ class UpstoxClient:
     def authenticate(self):
         """Authenticate with Upstox API"""
         try:
-            # Since we already have the access token in the config, we can use it directly
-            self.access_token = self.code  # The UPSTOX_CODE is actually the access token
+            # Initialize API client
+            api_client = ApiClient()
+            login_api = LoginApi(api_client)
             
-            # Create client with access token
-            self.client = upstox_client.Client(api_key=self.api_key, access_token=self.access_token)
+            # Assuming you have the client_id and other necessary details
+            client_id = self.api_key
+            redirect_uri = self.redirect_uri
+            api_version = "v2"
+            
+            # This will just return the authorization URL
+            # In a real application, you'd need to handle the OAuth flow manually
+            auth_url = login_api.authorize(client_id, redirect_uri, api_version)
+            logger.info(f"Authorization URL: {auth_url}")
+            
+            # Assuming you have the access token after the OAuth flow
+            api_client.configuration.access_token = self.code  # The UPSTOX_CODE is actually the access token
+            self.client = MarketApi(api_client)
             
             # Test the connection
             try:
@@ -86,7 +99,9 @@ class UpstoxClient:
             self.access_token = response_data['access_token']
             
             # Create client with access token
-            self.client = upstox_client.Client(api_key=self.api_key, access_token=self.access_token)
+            api_client = ApiClient()
+            api_client.configuration.access_token = self.access_token
+            self.client = MarketApi(api_client)
             
             logger.info("Authentication refreshed successfully")
             return True
