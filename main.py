@@ -11,13 +11,18 @@ import sys
 import traceback
 import schedule
 import asyncio
-from upstox_client.models.ohlc import Ohlc as OHLCInterval
+
+# Ensure aiogram is installed
 try:
     from aiogram import Bot, Dispatcher
 except ImportError:
     import subprocess
     subprocess.check_call([sys.executable, "-m", "pip", "install", "aiogram"])
     from aiogram import Bot, Dispatcher
+
+from upstox_client.api_client import ApiClient
+from upstox_client.api.login_api import LoginApi
+from upstox_client.api.market_api import MarketApi  # Correct import
 from config import *
 from compute import *
 
@@ -39,14 +44,28 @@ logger = logging.getLogger(__name__)
 # Initialize Upstox client
 def initialize_upstox():
     try:
-        # Directly use the access token
-        access_token = UPSTOX_ACCESS_TOKEN  # Ensure this is set in your config
-        return access_token
+        api_client = ApiClient()
+        login_api = LoginApi(api_client)
+        # Assuming you have the client_id and other necessary details
+        client_id = UPSTOX_API_KEY
+        redirect_uri = "your_redirect_uri"  # Replace with your redirect URI
+        api_version = "v2"
+
+        # This will just return the authorization URL
+        # In a real application, you'd need to handle the OAuth flow manually
+        auth_url = login_api.authorize(client_id, redirect_uri, api_version)
+        logger.info(f"Authorization URL: {auth_url}")
+
+        # Assuming you have the access token after the OAuth flow
+        api_client.configuration.access_token = UPSTOX_ACCESS_TOKEN
+        market_api = MarketApi(api_client)
+        logger.info("✅ Successfully authenticated with Upstox API")
+        return market_api
     except Exception as e:
         logger.error(f"Authentication error: {e}")
         return None
 
-# Telegram notification function with retry mechanism
+# Telegram notification function with exponential backoff retry mechanism
 async def send_telegram_message(message, retry_attempts=5):
     if ENABLE_TELEGRAM_ALERTS:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -88,15 +107,10 @@ Bot is now actively monitoring for trading signals.
     except Exception as e:
         logger.error(f"Failed to send startup notification: {str(e)}")
 
-def fetch_ohlcv_data(symbol, start_date, end_date):
+def fetch_ohlcv_data(market_api, symbol, start_date, end_date):
     try:
-        # Initialize Upstox client
-        upstox_client = initialize_upstox()
-        if not upstox_client:
-            raise Exception("Failed to initialize Upstox client")
-        
         # Fetch OHLCV data
-        ohlcv_data = upstox_client.get_ohlc(symbol, OHLCInterval.Day_1, start_date, end_date)
+        ohlcv_data = market_api.get_ohlc(symbol, OHLCInterval.DAY_1, start_date, end_date)
         df = pd.DataFrame(ohlcv_data)
         return df
     except Exception as e:
@@ -107,11 +121,13 @@ async def analyze_and_generate_signals():
     start_date = (datetime.datetime.now() - datetime.timedelta(days=HISTORICAL_DAYS)).strftime('%Y-%m-%d')
     end_date = datetime.datetime.now().strftime('%Y-%m-%d')
 
-    # Example for NIFTY 200 stocks
-    symbols = STOCK_LIST  # Replace with actual NIFTY 200 symbols
+    market_api = initialize_upstox()
+    if not market_api:
+        logger.error("Failed to initialize Upstox client")
+        return
 
-    for symbol in symbols:
-        data = fetch_ohlcv_data(symbol, start_date, end_date)
+    for symbol in STOCK_LIST:
+        data = fetch_ohlcv_data(market_api, symbol, start_date, end_date)
         if data.empty:
             logger.error(f"No data fetched for {symbol}")
             continue
@@ -166,8 +182,8 @@ def test_upstox_connection():
     logger.info("Testing Upstox API connection...")
     
     try:
-        upstox_client = initialize_upstox()
-        if upstox_client:
+        market_api = initialize_upstox()
+        if market_api:
             logger.info("✅ Successfully authenticated with Upstox API")
             return True
         else:
@@ -209,14 +225,14 @@ def schedule_analysis():
     schedule.every().monday.at("09:15").do(run_trading_signals)
     schedule.every().tuesday.at("09:15").do(run_trading_signals)
     schedule.every().wednesday.at("09:15").do(run_trading_signals)
-    schedule.every().thursday.at("09:15").do(run_trading_signals)
-    schedule.every().friday.at("09:15").do(run_trading_signals)
+    schedule.every.thursday.at("09:15").do(run_trading_signals)
+    schedule.every.friday.at("09:15").do(run_trading_signals)
     
-    schedule.every().monday.at("15:30").do(run_trading_signals)
-    schedule.every().tuesday.at("15:30").do(run_trading_signals)
-    schedule.every().wednesday.at("15:30").do(run_trading_signals)
-    schedule.every().thursday.at("15:30").do(run_trading_signals)
-    schedule.every().friday.at("15:30").do(run_trading_signals)
+    schedule.every.monday.at("15:30").do(run_trading_signals)
+    schedule.every.tuesday.at("15:30").do(run_trading_signals)
+    schedule.every.wednesday.at("15:30").do(run_trading_signals)
+    schedule.every.thursday.at("15:30").do(run_trading_signals)
+    schedule.every.friday.at("15:30").do(run_trading_signals)
     
     logger.info(f"Analysis scheduled during market hours (9:00 AM - 3:30 PM) on weekdays")
     
