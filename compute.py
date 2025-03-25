@@ -15,7 +15,7 @@ from telegram.ext import Updater
 import requests
 from upstox_client.api_client import ApiClient
 from upstox_client.api.login_api import LoginApi
-from upstox_client.api.market_api import MarketApi
+from upstox_client.api.market_quote_api import MarketQuoteApi
 import config
 
 # Setup logging
@@ -54,7 +54,7 @@ class UpstoxClient:
             
             # Assuming you have the access token after the OAuth flow
             api_client.configuration.access_token = self.code  # The UPSTOX_CODE is actually the access token
-            self.client = MarketApi(api_client)
+            self.client = MarketQuoteApi(api_client)
             
             # Test the connection
             try:
@@ -101,7 +101,7 @@ class UpstoxClient:
             # Create client with access token
             api_client = ApiClient()
             api_client.configuration.access_token = self.access_token
-            self.client = MarketApi(api_client)
+            self.client = MarketQuoteApi(api_client)
             
             logger.info("Authentication refreshed successfully")
             return True
