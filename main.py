@@ -103,7 +103,7 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date):
         # Fixed: Use the correct API method get_market_quote_ohlc instead of get_ohlc
         ohlc_response = market_api.get_market_quote_ohlc(
             symbol=symbol,
-            interval="1day",  # Equivalent to OHLCInterval.DAY_1
+            interval="day",  # Equivalent to OHLCInterval.DAY_1
             api_version="2.0"
         )
         
