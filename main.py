@@ -22,7 +22,7 @@ except ImportError:
 
 from upstox_client.api_client import ApiClient
 from upstox_client.api.login_api import LoginApi
-from upstox_client.api.market_api import MarketApi  # Correct import
+from upstox_client.api.market_quote_api import MarketQuoteApi  # Correct import
 from config import *
 from compute import *
 
@@ -58,7 +58,7 @@ def initialize_upstox():
 
         # Assuming you have the access token after the OAuth flow
         api_client.configuration.access_token = UPSTOX_ACCESS_TOKEN
-        market_api = MarketApi(api_client)
+        market_api = MarketQuoteApi(api_client)
         logger.info("✅ Successfully authenticated with Upstox API")
         return market_api
     except Exception as e:
