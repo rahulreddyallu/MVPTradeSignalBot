@@ -94,7 +94,7 @@ Bot is now actively monitoring for trading signals.
     except Exception as e:
         logger.error(f"Failed to send startup notification: {str(e)}")
 
-def fetch_ohlcv_data(market_api, instrument_key, start_date, end_date):
+def fetch_ohlcv_data(market_api, symbol, start_date, end_date):
     try:
         # Convert dates to epoch if needed for the API
         from_epoch = int(time.mktime(datetime.datetime.strptime(start_date, "%Y-%m-%d").timetuple()))
@@ -102,14 +102,14 @@ def fetch_ohlcv_data(market_api, instrument_key, start_date, end_date):
         
         # Fixed: Use the correct API method get_market_quote_ohlc instead of get_ohlc
         ohlc_response = market_api.get_market_quote_ohlc(
-            instrument_key=instrument_key,
+            symbol=symbol,
             interval="1d",  # Equivalent to OHLCInterval.DAY_1
             api_version="2.0"
         )
         
         # Extract data from the response
-        if hasattr(ohlc_response, 'data') and instrument_key in ohlc_response.data:
-            candles_data = ohlc_response.data[instrument_key]['candles']
+        if hasattr(ohlc_response, 'data') and symbol in ohlc_response.data:
+            candles_data = ohlc_response.data[symbol]['candles']
             
             # Create DataFrame maintaining the same column structure as expected by existing code
             df = pd.DataFrame(candles_data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -124,7 +124,7 @@ def fetch_ohlcv_data(market_api, instrument_key, start_date, end_date):
             
             return df
         else:
-            logger.error(f"No data returned for {instrument_key}")
+            logger.error(f"No data returned for {symbol}")
             return pd.DataFrame()
             
     except Exception as e:
@@ -140,10 +140,10 @@ async def analyze_and_generate_signals():
         logger.error("Failed to initialize Upstox client")
         return
 
-    for instrument_key in STOCK_LIST:
-        data = fetch_ohlcv_data(market_api, instrument_key, start_date, end_date)
+    for symbol in STOCK_LIST:
+        data = fetch_ohlcv_data(market_api, symbol, start_date, end_date)
         if data.empty:
-            logger.error(f"No data fetched for {instrument_key}")
+            logger.error(f"No data fetched for {symbol}")
             continue
 
         data['EMA_SHORT'] = calculate_ema(data['Close'], EMA_SHORT)
@@ -158,7 +158,7 @@ async def analyze_and_generate_signals():
         signals = generate_signals(data)
 
         for signal in signals:
-            message = f"{signal}\ninstrument_key: {instrument_key}\nPrice: {data['Close'].iloc[-1]}"
+            message = f"{signal}\nsymbol: {symbol}\nPrice: {data['Close'].iloc[-1]}"
             await send_telegram_message(message)
 
 def run_trading_signals():
