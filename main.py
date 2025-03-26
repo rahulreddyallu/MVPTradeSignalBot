@@ -39,6 +39,24 @@ from compute import TechnicalAnalysis
 
 import re
 
+from config import STOCK_INFO
+
+# Create a reverse mapping from symbol to ISIN
+SYMBOL_TO_ISIN = {info["symbol"]: isin for isin, info in STOCK_INFO.items()}
+
+def get_stock_info_by_key(instrument_key):
+    """Get stock info from instrument key (e.g., NSE_EQ|INE117A01022)"""
+    parts = instrument_key.split('|')
+    if len(parts) == 2:
+        isin = parts[1]
+        if isin in STOCK_INFO:
+            return STOCK_INFO[isin]
+    # Try direct symbol match as fallback
+    if instrument_key in SYMBOL_TO_ISIN:
+        isin = SYMBOL_TO_ISIN[instrument_key]
+        return STOCK_INFO[isin]
+    return {"name": "", "industry": "", "symbol": instrument_key, "series": ""}
+
 def escape_telegram_markdown(text):
     """Escape special characters for Telegram MarkdownV2 formatting."""
     if not text:
@@ -250,15 +268,23 @@ async def analyze_and_generate_signals():
         logger.info(f"Processing symbol: {symbol}")
         
         try:
+            # Get stock information
+            stock_info = get_stock_info_by_key(symbol)
+            company_name = stock_info.get("name", "")
+            industry = stock_info.get("industry", "")
+            trading_symbol = stock_info.get("symbol", symbol.split("|")[-1] if "|" in symbol else symbol)
+            
+            logger.info(f"Analyzing {company_name} ({trading_symbol}) - {industry}")
+            
             # Fetch historical data with daily interval
             data = fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day")
             
             if data.empty:
-                logger.error(f"No historical data fetched for {symbol}")
+                logger.error(f"No historical data fetched for {company_name} ({symbol})")
                 failed_analyses += 1
                 continue
             
-            logger.info(f"Analyzing {symbol} with {len(data)} data points")
+            logger.info(f"Analyzing {company_name} ({trading_symbol}) with {len(data)} data points")
             
             # Create a copy with lowercase column names for TechnicalAnalysis
             renamed_data = data.copy()
@@ -287,7 +313,7 @@ async def analyze_and_generate_signals():
             }
             
             if signals and overall_signal['strength'] >= MINIMUM_SIGNAL_STRENGTH:
-                logger.info(f"Generated signal for {symbol}: {overall_signal['signal']} (Strength: {overall_signal['strength']}/5) - {buy_signals_count} buy vs {sell_signals_count} sell signals")
+                logger.info(f"Generated signal for {company_name} ({trading_symbol}): {overall_signal['signal']} (Strength: {overall_signal['strength']}/5) - {buy_signals_count} buy vs {sell_signals_count} sell signals")
                 total_signals += 1
                 
                 if overall_signal['signal'] == 'BUY':
@@ -296,7 +322,7 @@ async def analyze_and_generate_signals():
                     sell_signals += 1
                 
                 # Add to daily report
-                daily_report.append(f"\n{symbol}: {overall_signal['signal']} (Strength: {overall_signal['strength']}/5)")
+                daily_report.append(f"\n{company_name} ({trading_symbol}): {overall_signal['signal']} (Strength: {overall_signal['strength']}/5)")
                 daily_report.append(f"{overall_signal['summary']}")
                 
                 # Format indicators text for message template
@@ -461,11 +487,12 @@ async def analyze_and_generate_signals():
                 else:
                     recommendation = "No clear signal. Consider staying out of the market."
                 
-                # Format message using template but with plain text (no markdown)
+                # Format message using template with company name and industry
                 message = """
 TRADING SIGNAL ALERT
 
-Stock: {stock_symbol}
+Stock: {stock_name} ({stock_symbol})
+Industry: {industry}
 Current Price: ₹{current_price}
 Signal Type: {signal_type}
 Timeframe: {timeframe}
@@ -482,8 +509,9 @@ Recommendation:
 
 Generated: {timestamp}
 """.format(
-                    stock_name="",  # Would need company name lookup
-                    stock_symbol=symbol,
+                    stock_name=company_name,
+                    stock_symbol=trading_symbol,
+                    industry=industry,
                     current_price=f"{data['Close'].iloc[-1]:.2f}",
                     signal_type=overall_signal['signal'],
                     timeframe="Daily",
@@ -496,14 +524,14 @@ Generated: {timestamp}
                 
                 # Send via Telegram
                 await send_telegram_message(message)
-                logger.info(f"Sent signal alert for {symbol}")
+                logger.info(f"Sent signal alert for {company_name} ({trading_symbol})")
                 
             elif signals:
-                logger.info(f"Signals generated for {symbol} but strength ({overall_signal['strength']}) below threshold")
-                daily_report.append(f"\n{symbol}: {overall_signal['signal']} (Strength: {overall_signal['strength']}/5) - Below threshold")
+                logger.info(f"Signals generated for {company_name} ({trading_symbol}) but strength ({overall_signal['strength']}) below threshold")
+                daily_report.append(f"\n{company_name} ({trading_symbol}): {overall_signal['signal']} (Strength: {overall_signal['strength']}/5) - Below threshold")
             else:
-                logger.info(f"No signals generated for {symbol}")
-                daily_report.append(f"\n{symbol}: No trading signals")
+                logger.info(f"No signals generated for {company_name} ({trading_symbol})")
+                daily_report.append(f"\n{company_name} ({trading_symbol}): No trading signals")
             
             successful_analyses += 1
                 
