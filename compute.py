@@ -1392,7 +1392,7 @@ class TechnicalAnalysis:
             'buy_signals_count': len(buy_signals),
             'sell_signals_count': len(sell_signals),
             'current_price': self.df['close'].iloc[-1],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
     
     def get_overall_signal(self):
@@ -1435,7 +1435,7 @@ class TechnicalAnalysis:
             'summary': summary,
             'buy_signals': len(buy_signals),
             'sell_signals': len(sell_signals),
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
     
     def get_indicators_summary(self):
@@ -1521,7 +1521,7 @@ class TradingSignalBot:
             return
         
         # Get current date
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        today = datetime.datetime.datetime.now().strftime("%Y-%m-%d")
         
         # Process each stock
         for instrument_key in config.STOCK_LIST:
@@ -1538,7 +1538,7 @@ class TradingSignalBot:
                 logger.info(f"Analyzing {stock_name} ({stock_symbol})")
                 
                 # Process short term signals
-                short_term_from_date = (datetime.datetime.now() - datetime.timedelta(days=config.SHORT_TERM_LOOKBACK)).strftime("%Y-%m-%d")
+                short_term_from_date = (datetime.datetime.datetime.now() - datetime.timedelta(days=config.SHORT_TERM_LOOKBACK)).strftime("%Y-%m-%d")
                 short_term_signals = self._analyze_stock(
                     instrument_key, 
                     stock_name, 
@@ -1550,7 +1550,7 @@ class TradingSignalBot:
                 )
                 
                 # Process long term signals
-                long_term_from_date = (datetime.datetime.now() - datetime.timedelta(days=config.LONG_TERM_LOOKBACK)).strftime("%Y-%m-%d")
+                long_term_from_date = (datetime.datetime.datetime.now() - datetime.timedelta(days=config.LONG_TERM_LOOKBACK)).strftime("%Y-%m-%d")
                 long_term_signals = self._analyze_stock(
                     instrument_key, 
                     stock_name, 
@@ -1676,7 +1676,7 @@ class TradingSignalBot:
             indicators=indicators_text,
             patterns=patterns_text,
             recommendation=recommendation,
-            timestamp=signals.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            timestamp=signals.get('timestamp', datetime.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         )
         
         return message
