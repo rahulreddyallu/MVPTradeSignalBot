@@ -175,9 +175,16 @@ async def analyze_and_generate_signals():
     Fetches historical data for symbols in STOCK_LIST, performs technical analysis,
     and generates trading signals.
     """
-    # Log function start
+    # Import necessary configurations
+    from config import SIGNAL_MESSAGE_TEMPLATE, MINIMUM_SIGNAL_STRENGTH
+    
+    # Log function start with current UTC time
     current_datetime = datetime.datetime.now()
-    logger.info(f"Starting analysis at {current_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Starting analysis at {current_datetime.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    
+    # Current date/time
+    current_date_str = "2025-03-26 02:25:45"
+    logger.info(f"Analysis date: {current_date_str}")
     
     # Calculate date range (based on HISTORICAL_DAYS constant)
     end_date = current_datetime.strftime('%Y-%m-%d')
@@ -194,6 +201,14 @@ async def analyze_and_generate_signals():
     successful_analyses = 0
     failed_analyses = 0
     total_signals = 0
+    
+    # Header for daily report
+    daily_report = [
+        f"📈 TRADING SIGNALS REPORT 📉",
+        f"Date: {current_date_str} UTC",
+        f"Analyzing {len(STOCK_LIST)} symbols with {HISTORICAL_DAYS} days of historical data",
+        "-" * 40
+    ]
 
     # Process each symbol in STOCK_LIST
     for symbol in STOCK_LIST:
@@ -210,41 +225,183 @@ async def analyze_and_generate_signals():
             
             logger.info(f"Analyzing {symbol} with {len(data)} data points")
             
-            # Calculate technical indicators
-            data['EMA_SHORT'] = calculate_ema(data['Close'], EMA_SHORT)
-            data['EMA_LONG'] = calculate_ema(data['Close'], EMA_LONG)
-            data['RSI'] = calculate_rsi(data['Close'], RSI_PERIOD)
-            data['MACD'], data['MACD_SIGNAL'] = calculate_macd(data['Close'], MACD_FAST, MACD_SLOW, MACD_SIGNAL)
-            data['BB_UPPER'], data['BB_LOWER'] = calculate_bollinger_bands(data['Close'], BB_PERIOD, BB_STDDEV)
-            data['SUPERTREND'] = calculate_supertrend(data, SUPERTREND_PERIOD, SUPERTREND_MULTIPLIER)
-            data['ADX'] = calculate_adx(data, ADX_PERIOD)
-            data['VWAP'] = calculate_vwap(data)
+            # Create a copy with lowercase column names for TechnicalAnalysis
+            renamed_data = data.copy()
+            renamed_data.columns = [col.lower() for col in renamed_data.columns]
             
-            # Generate signals based on technical indicators
-            signals = generate_signals(data)
+            # Perform technical analysis
+            analyzer = TechnicalAnalysis(renamed_data)
+            indicators_result = analyzer.calculate_all_indicators()
+            signals = analyzer.signals
+            overall_signal = analyzer.get_overall_signal()
             
-            if signals:
-                logger.info(f"Generated {len(signals)} signals for {symbol}")
+            if signals and overall_signal['strength'] >= MINIMUM_SIGNAL_STRENGTH:
+                logger.info(f"Generated {len(signals)} signals for {symbol} with overall strength {overall_signal['strength']}/5")
                 total_signals += len(signals)
                 
-                # Send signals via Telegram
-                for signal in signals:
-                    message = (
-                        f"📊 {signal}\n"
-                        f"Symbol: {symbol}\n"
-                        f"Current Price: {data['Close'].iloc[-1]:.2f}\n"
-                        f"Date: {data.index[-1].strftime('%Y-%m-%d')}\n\n"
-                        f"Technical Indicators:\n"
-                        f"RSI: {data['RSI'].iloc[-1]:.2f}\n"
-                        f"MACD: {data['MACD'].iloc[-1]:.2f}\n"
-                        f"EMA (Short): {data['EMA_SHORT'].iloc[-1]:.2f}\n"
-                        f"EMA (Long): {data['EMA_LONG'].iloc[-1]:.2f}\n"
-                        f"ADX: {data['ADX'].iloc[-1]:.2f}\n"
-                    )
-                    await send_telegram_message(message)
-                    logger.info(f"Sent signal for {symbol}: {signal}")
+                # Add to daily report
+                daily_report.append(f"\n{symbol}: {overall_signal['signal']} (Strength: {overall_signal['strength']}/5)")
+                daily_report.append(f"{overall_signal['summary']}")
+                
+                # Format indicators text for message template
+                indicators_text = []
+                
+                # 1. Moving Averages
+                if 'moving_averages' in indicators_result:
+                    ma_data = indicators_result['moving_averages']['values']
+                    ema_short = ma_data['ema_short']
+                    ema_long = ma_data['ema_long']
+                    sma_mid = ma_data['sma_mid']
+                    sma_long = ma_data['sma_long']
+                    
+                    indicators_text.append(f"• Moving Averages:")
+                    indicators_text.append(f"  - EMA: Short {ema_short} | Long {ema_long}")
+                    if sma_mid:
+                        indicators_text.append(f"  - SMA: Mid {sma_mid} | Long {sma_long}")
+                
+                # 2. RSI
+                if 'rsi' in indicators_result:
+                    rsi_data = indicators_result['rsi']['values']
+                    rsi_value = rsi_data['rsi']
+                    if rsi_value:
+                        indicators_text.append(f"• RSI: {rsi_value:.2f} (OB:{rsi_data['overbought_threshold']}/OS:{rsi_data['oversold_threshold']})")
+                
+                # 3. MACD
+                if 'macd' in indicators_result:
+                    macd_data = indicators_result['macd']['values']
+                    macd_line = macd_data['macd_line']
+                    signal_line = macd_data['signal_line']
+                    hist = macd_data['histogram']
+                    indicators_text.append(f"• MACD: {macd_line:.4f} | Signal: {signal_line:.4f} | Hist: {hist:.4f}")
+                
+                # 4. Supertrend
+                if 'supertrend' in indicators_result:
+                    st_data = indicators_result['supertrend']['values']
+                    st_value = st_data.get('supertrend')
+                    direction = st_data['direction']
+                    indicators_text.append(f"• Supertrend: {direction}" + (f" | Value: {st_value:.2f}" if st_value else ""))
+                
+                # 5. Bollinger Bands
+                if 'bollinger_bands' in indicators_result:
+                    bb_data = indicators_result['bollinger_bands']['values']
+                    middle = bb_data['middle']
+                    upper = bb_data['upper']
+                    lower = bb_data['lower']
+                    percent_b = bb_data.get('percent_b')
+                    bandwidth = bb_data.get('bandwidth')
+                    
+                    indicators_text.append(f"• Bollinger Bands:")
+                    indicators_text.append(f"  - Bands: Upper {upper:.2f} | Middle {middle:.2f} | Lower {lower:.2f}")
+                    if percent_b is not None:
+                        indicators_text.append(f"  - Position: %B {percent_b:.2f}" + (f" | Bandwidth: {bandwidth:.2f}" if bandwidth else ""))
+                
+                # 6. Stochastic
+                if 'stochastic' in indicators_result:
+                    stoch_data = indicators_result['stochastic']['values']
+                    k_value = stoch_data.get('k')
+                    d_value = stoch_data.get('d')
+                    if k_value and d_value:
+                        indicators_text.append(f"• Stochastic: %K {k_value:.2f} | %D {d_value:.2f}")
+                
+                # 7. Parabolic SAR (missed in previous version)
+                if 'parabolic_sar' in indicators_result:
+                    psar_data = indicators_result['parabolic_sar']['values']
+                    sar_value = psar_data.get('sar')
+                    trend = psar_data['trend']
+                    if sar_value:
+                        indicators_text.append(f"• Parabolic SAR: {sar_value:.2f} | Trend: {trend}")
+                
+                # 8. Aroon (missed in previous version)
+                if 'aroon' in indicators_result:
+                    aroon_data = indicators_result['aroon']['values']
+                    aroon_up = aroon_data.get('aroon_up')
+                    aroon_down = aroon_data.get('aroon_down')
+                    strong_uptrend = aroon_data.get('strong_uptrend')
+                    strong_downtrend = aroon_data.get('strong_downtrend')
+                    
+                    if aroon_up is not None and aroon_down is not None:
+                        trend_str = "Strong Uptrend" if strong_uptrend else "Strong Downtrend" if strong_downtrend else "Neutral"
+                        indicators_text.append(f"• Aroon: Up {aroon_up:.2f} | Down {aroon_down:.2f} | {trend_str}")
+                
+                # 9. Rate of Change (missed in previous version)
+                if 'roc' in indicators_result:
+                    roc_data = indicators_result['roc']['values']
+                    roc_value = roc_data.get('roc')
+                    trend = roc_data.get('trend')
+                    if roc_value is not None:
+                        indicators_text.append(f"• Rate of Change: {roc_value:.2f} | Trend: {trend}")
+                
+                # 10. ATR
+                if 'atr' in indicators_result:
+                    atr_data = indicators_result['atr']['values']
+                    atr_value = atr_data.get('atr')
+                    buy_stop = atr_data.get('buy_stop')
+                    sell_stop = atr_data.get('sell_stop')
+                    
+                    indicators_text.append(f"• ATR: {atr_value:.2f}")
+                    if overall_signal['signal'] == 'BUY' and buy_stop:
+                        indicators_text.append(f"  - Suggested Stop Loss: {buy_stop:.2f}")
+                    elif overall_signal['signal'] == 'SELL' and sell_stop:
+                        indicators_text.append(f"  - Suggested Stop Loss: {sell_stop:.2f}")
+                
+                # 11. OBV (missed in previous version)
+                if 'obv' in indicators_result:
+                    obv_data = indicators_result['obv']['values']
+                    rising = obv_data.get('rising')
+                    indicators_text.append(f"• On-Balance Volume: {'Rising' if rising else 'Falling'}")
+                
+                # 12. VWAP (missed in previous version)
+                if 'vwap' in indicators_result:
+                    vwap_data = indicators_result['vwap']['values']
+                    vwap_value = vwap_data.get('vwap')
+                    price_to_vwap = vwap_data.get('price_to_vwap')
+                    if vwap_value:
+                        position = "Above VWAP" if price_to_vwap > 1 else "Below VWAP"
+                        indicators_text.append(f"• VWAP: {vwap_value:.2f} | Price: {position} ({price_to_vwap:.2f}x)")
+                
+                # Format patterns text (none detected in current implementation)
+                patterns_text = ["No specific chart patterns detected"]
+                
+                # Generate recommendation based on overall signal
+                if overall_signal['signal'] == 'BUY':
+                    recommendation = f"Consider LONG position. {overall_signal['summary']}."
+                    if 'atr' in indicators_result:
+                        stop_loss = indicators_result['atr']['values'].get('buy_stop')
+                        if stop_loss:
+                            recommendation += f" Set stop loss at {stop_loss:.2f}"
+                elif overall_signal['signal'] == 'SELL':
+                    recommendation = f"Consider SHORT position. {overall_signal['summary']}."
+                    if 'atr' in indicators_result:
+                        stop_loss = indicators_result['atr']['values'].get('sell_stop')
+                        if stop_loss:
+                            recommendation += f" Set stop loss at {stop_loss:.2f}"
+                else:
+                    recommendation = "No clear signal. Consider staying out of the market."
+                
+                # Format message using template
+                message = SIGNAL_MESSAGE_TEMPLATE.format(
+                    stock_name="",  # Would need company name lookup
+                    stock_symbol=symbol,
+                    current_price=f"{data['Close'].iloc[-1]:.2f}",
+                    signal_type=overall_signal['signal'],
+                    timeframe="Daily",
+                    strength=overall_signal['strength'],
+                    indicators="\n".join(indicators_text),
+                    patterns="\n".join(patterns_text),
+                    recommendation=recommendation,
+                    timestamp=current_date_str
+                )
+                
+                # Send via Telegram
+                await send_telegram_message(message)
+                logger.info(f"Sent signal alert for {symbol}")
+                
+            elif signals:
+                logger.info(f"Signals generated for {symbol} but strength ({overall_signal['strength']}) below threshold")
+                daily_report.append(f"\n{symbol}: {overall_signal['signal']} (Strength: {overall_signal['strength']}/5) - Below threshold")
             else:
                 logger.info(f"No signals generated for {symbol}")
+                daily_report.append(f"\n{symbol}: No trading signals")
             
             successful_analyses += 1
                 
@@ -253,14 +410,28 @@ async def analyze_and_generate_signals():
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             failed_analyses += 1
+            daily_report.append(f"\n{symbol}: Error during analysis - {str(e)[:50]}...")
             continue
+    
+    # Finalize daily report
+    daily_report.append("\n" + "-" * 40)
+    daily_report.append(f"Analysis Summary:")
+    daily_report.append(f"• Analyzed: {successful_analyses} symbols")
+    daily_report.append(f"• Failed: {failed_analyses} symbols") 
+    daily_report.append(f"• Total signals generated: {total_signals}")
+    daily_report.append(f"• Report time: {current_date_str} UTC")
+    
+    # Send daily summary report via Telegram
+    if successful_analyses > 0:
+        await send_telegram_message("\n".join(daily_report))
     
     # Log summary statistics
     logger.info(f"Analysis completed. Processed {len(STOCK_LIST)} symbols.")
     logger.info(f"Successful analyses: {successful_analyses}")
     logger.info(f"Failed analyses: {failed_analyses}")
     logger.info(f"Total signals generated: {total_signals}")
-
+    logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    
 def run_trading_signals():
     """Run the trading signal generation process"""
     start_time = time.time()
