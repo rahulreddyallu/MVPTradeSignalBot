@@ -179,9 +179,20 @@ class TechnicalAnalysis:
         Args:
             df: DataFrame with OHLCV data (index=timestamp, columns=[open, high, low, close, volume])
         """
-        self.df = df
+        # Ensure column names are lowercase
+        self.df = df.copy()
+        self.df.columns = [col.lower() for col in self.df.columns]
+        
+        # Ensure we have the required columns
+        required_columns = ['open', 'high', 'low', 'close', 'volume']
+        for col in required_columns:
+            if col not in self.df.columns:
+                logging.error(f"Missing required column: {col}")
+                raise ValueError(f"DataFrame must contain {col} column")
+        
+        # Initialize results dictionaries and signals list
         self.indicators_result = {}
-        self.patterns_result = {}
+        self.patterns_result = {'candlestick': {}, 'chart': {}}
         self.signals = []
     
     def calculate_all_indicators(self):
@@ -1082,6 +1093,9 @@ class TechnicalAnalysis:
 
     def generate_signals(self):
         """Generate trading signals based on all indicators and patterns"""
+        # Clear existing signals list before recalculating
+        self.signals = []
+        
         # Get signals from all indicators
         self.calculate_all_indicators()
         
@@ -1090,8 +1104,11 @@ class TechnicalAnalysis:
         self.detect_chart_patterns()
         
         # Calculate overall signal strength
-        buy_strength = sum(signal['strength'] for signal in self.signals if signal['signal'] == 'BUY')
-        sell_strength = sum(signal['strength'] for signal in self.signals if signal['signal'] == 'SELL')
+        buy_signals = [s for s in self.signals if s['signal'] == 'BUY']
+        sell_signals = [s for s in self.signals if s['signal'] == 'SELL']
+        
+        buy_strength = sum(s['strength'] for s in buy_signals)
+        sell_strength = sum(s['strength'] for s in sell_signals)
         
         # Determine overall signal
         overall_signal = 'NEUTRAL'
@@ -1110,9 +1127,102 @@ class TechnicalAnalysis:
             'indicators': self.indicators_result,
             'patterns': self.patterns_result,
             'individual_signals': self.signals,
-            'current_price': self.df['close'].iloc[-1]
+            'buy_signals_count': len(buy_signals),
+            'sell_signals_count': len(sell_signals),
+            'current_price': self.df['close'].iloc[-1],
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
-
+    
+    def get_overall_signal(self):
+        """
+        Determine overall trading signal based on all indicator signals.
+        
+        Returns:
+        --------
+        dict with overall signal information
+        """
+        if not self.signals:
+            # Calculate indicators and patterns if not already done
+            self.generate_signals()
+            
+        # Count buy and sell signals
+        buy_signals = [s for s in self.signals if s['signal'] == 'BUY']
+        sell_signals = [s for s in self.signals if s['signal'] == 'SELL']
+        
+        # Calculate weighted signal strength
+        buy_strength = sum(s['strength'] for s in buy_signals)
+        sell_strength = sum(s['strength'] for s in sell_signals)
+        
+        # Determine overall signal
+        if buy_strength > sell_strength:
+            signal_type = 'BUY'
+            strength = min(5, max(1, int((buy_strength - sell_strength) / 2)))
+            summary = f"Bullish signal with {len(buy_signals)} indicators confirming"
+        elif sell_strength > buy_strength:
+            signal_type = 'SELL'
+            strength = min(5, max(1, int((sell_strength - buy_strength) / 2)))
+            summary = f"Bearish signal with {len(sell_signals)} indicators confirming"
+        else:
+            signal_type = 'NEUTRAL'
+            strength = 0
+            summary = "Mixed signals, no clear direction"
+        
+        return {
+            'signal': signal_type,
+            'strength': strength,
+            'summary': summary,
+            'buy_signals': len(buy_signals),
+            'sell_signals': len(sell_signals),
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+    
+    def get_indicators_summary(self):
+        """Get a formatted string summary of all indicators"""
+        summary = []
+        
+        # Ensure we have calculated all indicators
+        if not self.indicators_result:
+            self.calculate_all_indicators()
+        
+        # Moving Averages
+        if 'moving_averages' in self.indicators_result:
+            ma = self.indicators_result['moving_averages']
+            summary.append(f"Moving Averages: {'Bullish' if ma['signal'] == 1 else 'Bearish' if ma['signal'] == -1 else 'Neutral'}")
+            summary.append(f"  EMA(9): {ma['values']['ema_short']}, EMA(21): {ma['values']['ema_long']}")
+            
+        # RSI
+        if 'rsi' in self.indicators_result:
+            rsi = self.indicators_result['rsi']['values']['rsi']
+            summary.append(f"RSI: {rsi:.2f} - {'Oversold' if rsi < 30 else 'Overbought' if rsi > 70 else 'Neutral'}")
+            
+        # MACD
+        if 'macd' in self.indicators_result:
+            macd = self.indicators_result['macd']
+            summary.append(f"MACD: {'Bullish' if macd['signal'] == 1 else 'Bearish' if macd['signal'] == -1 else 'Neutral'}")
+            
+        # Supertrend
+        if 'supertrend' in self.indicators_result:
+            st = self.indicators_result['supertrend']
+            summary.append(f"Supertrend: {st['values']['direction']}")
+            
+        # Pattern Detection 
+        if self.patterns_result:
+            patterns_found = []
+            
+            # Candlestick patterns
+            for pattern, data in self.patterns_result['candlestick'].items():
+                signal = 'Bullish' if data['signal'] == 1 else 'Bearish'
+                patterns_found.append(f"{pattern.replace('_', ' ').title()} ({signal})")
+                
+            # Chart patterns 
+            for pattern, data in self.patterns_result['chart'].items():
+                signal = 'Bullish' if data['signal'] == 1 else 'Bearish'
+                patterns_found.append(f"{pattern.replace('_', ' ').title()} ({signal})")
+            
+            if patterns_found:
+                summary.append(f"Patterns Detected: {', '.join(patterns_found)}")
+        
+        return '\n'.join(summary)
 
 class TelegramSender:
     def __init__(self, token, chat_id):
@@ -1194,6 +1304,8 @@ class TradingSignalBot:
                 
             except Exception as e:
                 logger.error(f"Error analyzing {instrument_key}: {str(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
     
     def _analyze_stock(self, instrument_key, stock_name, stock_symbol, interval, from_date, to_date, timeframe):
         """Analyze a single stock and send signals if needed"""
@@ -1217,7 +1329,7 @@ class TradingSignalBot:
             )
             
             self.telegram.send_message(message)
-            logger.info(f"Sent {signals['signal']} signal for {stock_symbol} ({timeframe})")
+            logger.info(f"Sent {signals['signal']} signal for {stock_symbol} ({timeframe}) - {signals['buy_signals_count']} buy vs {signals['sell_signals_count']} sell signals")
         
         return signals
     
@@ -1229,19 +1341,67 @@ class TradingSignalBot:
             if values.get('signal', 0) != 0:
                 signal_type = "🟢 BUY" if values['signal'] == 1 else "🔴 SELL"
                 indicators_text += f"• {indicator.replace('_', ' ').title()}: {signal_type}\n"
+                
+                # Add key indicator values for more context
+                if indicator == 'rsi':
+                    rsi_value = values['values'].get('rsi')
+                    if rsi_value:
+                        indicators_text += f"  ↳ Value: {rsi_value:.2f} (OB:70/OS:30)\n"
+                
+                elif indicator == 'supertrend':
+                    direction = values['values'].get('direction')
+                    indicators_text += f"  ↳ Trend: {direction}\n"
+                
+                elif indicator == 'bollinger_bands':
+                    percent_b = values['values'].get('percent_b')
+                    if percent_b:
+                        indicators_text += f"  ↳ %B: {percent_b:.2f}\n"
         
         # Format patterns section
         patterns_text = ""
-        for pattern_type, patterns in signals['patterns'].items():
-            for pattern_name, pattern_data in patterns.items():
-                signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
-                patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type}\n"
         
-        if not patterns_text:
+        # First check if we have any patterns at all
+        has_patterns = False
+        for pattern_type, patterns in signals['patterns'].items():
+            if patterns:
+                has_patterns = True
+                break
+        
+        # Process candlestick patterns
+        if 'candlestick' in signals['patterns'] and signals['patterns']['candlestick']:
+            patterns_text += "📊 *Candlestick Patterns:*\n"
+            for pattern_name, pattern_data in signals['patterns']['candlestick'].items():
+                signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
+                strength_stars = "⭐" * pattern_data['strength']
+                patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}\n"
+        
+        # Process chart patterns
+        if 'chart' in signals['patterns'] and signals['patterns']['chart']:
+            patterns_text += "\n📈 *Chart Patterns:*\n"
+            for pattern_name, pattern_data in signals['patterns']['chart'].items():
+                signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
+                strength_stars = "⭐" * pattern_data['strength']
+                patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}\n"
+        
+        if not has_patterns:
             patterns_text = "• No significant patterns detected\n"
         
-        # Format recommendation
-        recommendation = f"Strong {signals['signal']} recommendation based on multiple technical indicators."
+        # Format recommendation with more details
+        if signals['signal'] == 'BUY':
+            recommendation = f"Strong BUY recommendation based on {signals['buy_signals_count']} bullish signals vs {signals['sell_signals_count']} bearish signals."
+            
+            # Add stop loss recommendation if available
+            if 'atr' in signals['indicators']:
+                stop_loss = signals['indicators']['atr']['values']['buy_stop']
+                recommendation += f"\n\nSuggested stop loss: {stop_loss:.2f} (ATR-based)"
+                
+        else:  # SELL signal
+            recommendation = f"Strong SELL recommendation based on {signals['sell_signals_count']} bearish signals vs {signals['buy_signals_count']} bullish signals."
+            
+            # Add stop loss recommendation if available
+            if 'atr' in signals['indicators']:
+                stop_loss = signals['indicators']['atr']['values']['sell_stop']
+                recommendation += f"\n\nSuggested stop loss: {stop_loss:.2f} (ATR-based)"
         
         # Fill in the message template
         message = config.SIGNAL_MESSAGE_TEMPLATE.format(
@@ -1254,7 +1414,7 @@ class TradingSignalBot:
             indicators=indicators_text,
             patterns=patterns_text,
             recommendation=recommendation,
-            timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            timestamp=signals.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         )
         
         return message
