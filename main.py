@@ -23,9 +23,18 @@ except ImportError:
 from upstox_client.api_client import ApiClient
 from upstox_client.api.market_quote_api import MarketQuoteApi  # Correct import
 from upstox_client.api.history_api import HistoryApi
-from compute import TechnicalAnalysis
 from config import *
-from compute import *
+import importlib
+
+# Add directory to path if needed
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+# Force reload of compute module
+import compute
+importlib.reload(compute)
+
+# Import after reload
+from compute import TechnicalAnalysis
 
 # Create logs directory if it doesn't exist
 os.makedirs('logs', exist_ok=True)
