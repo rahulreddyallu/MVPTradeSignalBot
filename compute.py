@@ -197,18 +197,65 @@ class TechnicalAnalysis:
     
     def calculate_all_indicators(self):
         """Calculate all technical indicators using pandas-ta"""
-        self._calculate_moving_averages()
-        self._calculate_macd()
-        self._calculate_supertrend()
-        self._calculate_parabolic_sar()
-        self._calculate_aroon()
-        self._calculate_rsi()
-        self._calculate_stochastic()
-        self._calculate_rate_of_change()
-        self._calculate_bollinger_bands()
-        self._calculate_atr()
-        self._calculate_obv()
-        self._calculate_vwap()
+        try:
+            self._calculate_moving_averages()
+        except Exception as e:
+            logger.warning(f"Error calculating Moving Averages: {e}")
+            
+        try:
+            self._calculate_macd()
+        except Exception as e:
+            logger.warning(f"Error calculating MACD: {e}")
+            
+        try:
+            self._calculate_supertrend()
+        except Exception as e:
+            logger.warning(f"Error calculating SuperTrend: {e}")
+            
+        try:
+            self._calculate_parabolic_sar()
+        except Exception as e:
+            logger.warning(f"Error calculating Parabolic SAR: {e}")
+            
+        try:
+            self._calculate_aroon()
+        except Exception as e:
+            logger.warning(f"Error calculating Aroon: {e}")
+            
+        try:
+            self._calculate_rsi()
+        except Exception as e:
+            logger.warning(f"Error calculating RSI: {e}")
+            
+        try:
+            self._calculate_stochastic()
+        except Exception as e:
+            logger.warning(f"Error calculating Stochastic: {e}")
+            
+        try:
+            self._calculate_rate_of_change()
+        except Exception as e:
+            logger.warning(f"Error calculating ROC: {e}")
+            
+        try:
+            self._calculate_bollinger_bands()
+        except Exception as e:
+            logger.warning(f"Error calculating Bollinger Bands: {e}")
+            
+        try:
+            self._calculate_atr()
+        except Exception as e:
+            logger.warning(f"Error calculating ATR: {e}")
+            
+        try:
+            self._calculate_obv()
+        except Exception as e:
+            logger.warning(f"Error calculating OBV: {e}")
+            
+        try:
+            self._calculate_vwap()
+        except Exception as e:
+            logger.warning(f"Error calculating VWAP: {e}")
         
         return self.indicators_result
     
@@ -273,9 +320,27 @@ class TechnicalAnalysis:
         )
         
         # Add MACD components to dataframe
-        self.df['macd_line'] = macd[f"MACD_{params['fast_period']}_{params['slow_period']}_{params['signal_period']}"]
-        self.df['signal_line'] = macd[f"MACDs_{params['fast_period']}_{params['slow_period']}_{params['signal_period']}"]
-        self.df['macd_histogram'] = macd[f"MACDh_{params['fast_period']}_{params['slow_period']}_{params['signal_period']}"]
+        # Handle possible different naming conventions
+        macd_columns = macd.columns.tolist()
+        
+        # Find the appropriate columns
+        macd_line_col = next((col for col in macd_columns if col.startswith('MACD_')), None)
+        signal_line_col = next((col for col in macd_columns if col.startswith('MACDs_')), None)
+        histogram_col = next((col for col in macd_columns if col.startswith('MACDh_')), None)
+        
+        # Fallback to positional access if pattern matching fails
+        if not all([macd_line_col, signal_line_col, histogram_col]) and len(macd_columns) >= 3:
+            macd_line_col = macd_columns[0]
+            signal_line_col = macd_columns[1]
+            histogram_col = macd_columns[2]
+            
+        if not all([macd_line_col, signal_line_col, histogram_col]):
+            logger.warning(f"Could not find MACD columns in: {macd_columns}")
+            raise ValueError("Could not determine MACD column names")
+        
+        self.df['macd_line'] = macd[macd_line_col]
+        self.df['signal_line'] = macd[signal_line_col]
+        self.df['macd_histogram'] = macd[histogram_col]
         
         # Generate signals
         self.df['macd_crossover'] = 0
@@ -375,9 +440,9 @@ class TechnicalAnalysis:
             
             # Generate signals
             self.df['supertrend_buy_signal'] = ((self.df['supertrend_direction'].shift(1) == -1) & 
-                                              (self.df['supertrend_direction'] == 1)).astype(int)
+                                            (self.df['supertrend_direction'] == 1)).astype(int)
             self.df['supertrend_sell_signal'] = ((self.df['supertrend_direction'].shift(1) == 1) & 
-                                               (self.df['supertrend_direction'] == -1)).astype(int)
+                                             (self.df['supertrend_direction'] == -1)).astype(int)
             
             # Save to results
             current_supertrend_signal = 0
@@ -417,123 +482,184 @@ class TechnicalAnalysis:
         """Calculate Parabolic SAR indicator using pandas-ta"""
         params = config.INDICATORS["parabolic_sar"]
         
-        # Calculate PSAR using pandas-ta
-        psar = ta.psar(
-            high=self.df['high'],
-            low=self.df['low'],
-            close=self.df['close'],
-            af=params['acceleration_factor'],
-            max_af=params['max_acceleration_factor']
-        )
-        
-        # Add PSAR components to dataframe
-        self.df['psar'] = psar['PSARl_0.02_0.2']  # PSARl for long positions
-        self.df['psar_short'] = psar['PSARs_0.02_0.2']  # PSARs for short positions
-        
-        # Determine trend direction
-        self.df['bull'] = self.df['close'] > self.df['psar']
-        
-        # Generate signals
-        self.df['psar_buy_signal'] = ((self.df['bull'].shift(1) == False) & 
-                                    (self.df['bull'] == True)).astype(int)
-        self.df['psar_sell_signal'] = ((self.df['bull'].shift(1) == True) & 
-                                     (self.df['bull'] == False)).astype(int)
-        
-        # Save to results
-        current_psar_signal = 0
-        if self.df['psar_buy_signal'].iloc[-1] == 1:
-            current_psar_signal = 1
-        elif self.df['psar_sell_signal'].iloc[-1] == 1:
-            current_psar_signal = -1
-        
-        # Get current PSAR value (either long or short depending on trend)
-        current_psar = self.df['psar'].iloc[-1] if not pd.isna(self.df['psar'].iloc[-1]) else self.df['psar_short'].iloc[-1]
-        
-        self.indicators_result['parabolic_sar'] = {
-            'signal': current_psar_signal,
-            'values': {
-                'sar': round(current_psar, 2) if not pd.isna(current_psar) else None,
-                'trend': 'Bullish' if self.df['bull'].iloc[-1] else 'Bearish'
+        try:
+            # Calculate PSAR using pandas-ta
+            psar = ta.psar(
+                high=self.df['high'],
+                low=self.df['low'],
+                close=self.df['close'],
+                af=params['acceleration_factor'],
+                max_af=params['max_acceleration_factor']
+            )
+            
+            # Get actual column names
+            psar_columns = psar.columns.tolist()
+            
+            # Find appropriate columns by pattern
+            psar_long_col = None
+            psar_short_col = None
+            
+            for col in psar_columns:
+                if 'PSARl_' in col:
+                    psar_long_col = col
+                elif 'PSARs_' in col:
+                    psar_short_col = col
+            
+            # Fallback to positional columns if needed
+            if psar_long_col is None and len(psar_columns) >= 2:
+                psar_long_col = psar_columns[0]
+                psar_short_col = psar_columns[1]
+            
+            # Check if we found the columns
+            if psar_long_col is None or psar_short_col is None:
+                logger.warning(f"Could not find PSAR columns in: {psar_columns}")
+                raise ValueError(f"PSAR columns not found in: {psar_columns}")
+                
+            # Add PSAR components to dataframe
+            self.df['psar'] = psar[psar_long_col]  # PSARl for long positions
+            self.df['psar_short'] = psar[psar_short_col]  # PSARs for short positions
+            
+            # Determine trend direction
+            self.df['bull'] = self.df['close'] > self.df['psar']
+            
+            # Generate signals
+            self.df['psar_buy_signal'] = ((self.df['bull'].shift(1) == False) & 
+                                       (self.df['bull'] == True)).astype(int)
+            self.df['psar_sell_signal'] = ((self.df['bull'].shift(1) == True) & 
+                                        (self.df['bull'] == False)).astype(int)
+            
+            # Save to results
+            current_psar_signal = 0
+            if self.df['psar_buy_signal'].iloc[-1] == 1:
+                current_psar_signal = 1
+            elif self.df['psar_sell_signal'].iloc[-1] == 1:
+                current_psar_signal = -1
+            
+            # Get current PSAR value (either long or short depending on trend)
+            current_psar = self.df['psar'].iloc[-1] if not pd.isna(self.df['psar'].iloc[-1]) else self.df['psar_short'].iloc[-1]
+            
+            self.indicators_result['parabolic_sar'] = {
+                'signal': current_psar_signal,
+                'values': {
+                    'sar': round(current_psar, 2) if not pd.isna(current_psar) else None,
+                    'trend': 'Bullish' if self.df['bull'].iloc[-1] else 'Bearish'
+                }
             }
-        }
-        
-        # Add to signals list
-        if current_psar_signal != 0:
-            self.signals.append({
-                'indicator': 'Parabolic SAR',
-                'signal': 'BUY' if current_psar_signal == 1 else 'SELL',
-                'strength': 3
-            })
+            
+            # Add to signals list
+            if current_psar_signal != 0:
+                self.signals.append({
+                    'indicator': 'Parabolic SAR',
+                    'signal': 'BUY' if current_psar_signal == 1 else 'SELL',
+                    'strength': 3
+                })
+        except Exception as e:
+            logger.warning(f"Error calculating Parabolic SAR: {e}. Skipping this indicator.")
+            self.indicators_result['parabolic_sar'] = {
+                'signal': 0,
+                'values': {
+                    'sar': None,
+                    'trend': 'Unknown'
+                }
+            }
 
     def _calculate_aroon(self):
         """Calculate Aroon indicator using pandas-ta"""
         params = config.INDICATORS["aroon"]
         
-        # Calculate Aroon using pandas-ta
-        aroon = ta.aroon(
-            high=self.df['high'],
-            low=self.df['low'],
-            length=params['period']
-        )
-        
-        # Add Aroon components to dataframe
-        self.df['aroon_up'] = aroon[f"AROONU_{params['period']}"]
-        self.df['aroon_down'] = aroon[f"AROOND_{params['period']}"]
-        
-        # Generate signals
-        self.df['aroon_crossover'] = 0
-        self.df.loc[self.df['aroon_up'] > self.df['aroon_down'], 'aroon_crossover'] = 1
-        self.df.loc[self.df['aroon_up'] < self.df['aroon_down'], 'aroon_crossover'] = -1
-        
-        # Detect crossovers
-        self.df['aroon_buy_signal'] = ((self.df['aroon_crossover'].shift(1) == -1) & 
-                                      (self.df['aroon_crossover'] == 1)).astype(int)
-        self.df['aroon_sell_signal'] = ((self.df['aroon_crossover'].shift(1) == 1) & 
-                                       (self.df['aroon_crossover'] == -1)).astype(int)
-        
-        # Strong trend signals
-        self.df['aroon_strong_uptrend'] = ((self.df['aroon_up'] > params['uptrend_threshold']) & 
-                                          (self.df['aroon_down'] < params['downtrend_threshold'])).astype(int)
-        self.df['aroon_strong_downtrend'] = ((self.df['aroon_down'] > params['uptrend_threshold']) & 
-                                            (self.df['aroon_up'] < params['downtrend_threshold'])).astype(int)
-        
-        # Save to results
-        current_aroon_signal = 0
-        if self.df['aroon_buy_signal'].iloc[-1] == 1:
-            current_aroon_signal = 1
-        elif self.df['aroon_sell_signal'].iloc[-1] == 1:
-            current_aroon_signal = -1
-        
-        # Check for strong trends
-        is_strong_uptrend = self.df['aroon_strong_uptrend'].iloc[-1] == 1
-        is_strong_downtrend = self.df['aroon_strong_downtrend'].iloc[-1] == 1
-        
-        if is_strong_uptrend:
-            current_aroon_signal = 1
-        elif is_strong_downtrend:
-            current_aroon_signal = -1
-        
-        self.indicators_result['aroon'] = {
-            'signal': current_aroon_signal,
-            'values': {
-                'aroon_up': round(self.df['aroon_up'].iloc[-1], 2) if not pd.isna(self.df['aroon_up'].iloc[-1]) else None,
-                'aroon_down': round(self.df['aroon_down'].iloc[-1], 2) if not pd.isna(self.df['aroon_down'].iloc[-1]) else None,
-                'strong_uptrend': is_strong_uptrend,
-                'strong_downtrend': is_strong_downtrend
-            }
-        }
-        
-        # Add to signals list
-        if current_aroon_signal != 0:
-            strength = 3  # Default strength
-            if is_strong_uptrend or is_strong_downtrend:
-                strength = 4  # Higher strength for strong trends
+        try:
+            # Calculate Aroon using pandas-ta
+            aroon = ta.aroon(
+                high=self.df['high'],
+                low=self.df['low'],
+                length=params['period']
+            )
+            
+            # Get column names
+            aroon_columns = aroon.columns.tolist()
+            
+            # Find appropriate columns
+            aroon_up_col = next((col for col in aroon_columns if 'AROONU_' in col), None)
+            aroon_down_col = next((col for col in aroon_columns if 'AROOND_' in col), None)
+            
+            # Fallback to positional if needed
+            if not all([aroon_up_col, aroon_down_col]) and len(aroon_columns) >= 2:
+                aroon_up_col = aroon_columns[0]
+                aroon_down_col = aroon_columns[1]
                 
-            self.signals.append({
-                'indicator': 'Aroon',
-                'signal': 'BUY' if current_aroon_signal == 1 else 'SELL',
-                'strength': strength
-            })
+            if not all([aroon_up_col, aroon_down_col]):
+                logger.warning(f"Could not find Aroon columns in: {aroon_columns}")
+                raise ValueError("Could not determine Aroon column names")
+            
+            # Add Aroon components to dataframe
+            self.df['aroon_up'] = aroon[aroon_up_col]
+            self.df['aroon_down'] = aroon[aroon_down_col]
+            
+            # Generate signals
+            self.df['aroon_crossover'] = 0
+            self.df.loc[self.df['aroon_up'] > self.df['aroon_down'], 'aroon_crossover'] = 1
+            self.df.loc[self.df['aroon_up'] < self.df['aroon_down'], 'aroon_crossover'] = -1
+            
+            # Detect crossovers
+            self.df['aroon_buy_signal'] = ((self.df['aroon_crossover'].shift(1) == -1) & 
+                                         (self.df['aroon_crossover'] == 1)).astype(int)
+            self.df['aroon_sell_signal'] = ((self.df['aroon_crossover'].shift(1) == 1) & 
+                                          (self.df['aroon_crossover'] == -1)).astype(int)
+            
+            # Strong trend signals
+            self.df['aroon_strong_uptrend'] = ((self.df['aroon_up'] > params['uptrend_threshold']) & 
+                                             (self.df['aroon_down'] < params['downtrend_threshold'])).astype(int)
+            self.df['aroon_strong_downtrend'] = ((self.df['aroon_down'] > params['uptrend_threshold']) & 
+                                               (self.df['aroon_up'] < params['downtrend_threshold'])).astype(int)
+            
+            # Save to results
+            current_aroon_signal = 0
+            if self.df['aroon_buy_signal'].iloc[-1] == 1:
+                current_aroon_signal = 1
+            elif self.df['aroon_sell_signal'].iloc[-1] == 1:
+                current_aroon_signal = -1
+            
+            # Check for strong trends
+            is_strong_uptrend = self.df['aroon_strong_uptrend'].iloc[-1] == 1
+            is_strong_downtrend = self.df['aroon_strong_downtrend'].iloc[-1] == 1
+            
+            if is_strong_uptrend:
+                current_aroon_signal = 1
+            elif is_strong_downtrend:
+                current_aroon_signal = -1
+            
+            self.indicators_result['aroon'] = {
+                'signal': current_aroon_signal,
+                'values': {
+                    'aroon_up': round(self.df['aroon_up'].iloc[-1], 2) if not pd.isna(self.df['aroon_up'].iloc[-1]) else None,
+                    'aroon_down': round(self.df['aroon_down'].iloc[-1], 2) if not pd.isna(self.df['aroon_down'].iloc[-1]) else None,
+                    'strong_uptrend': is_strong_uptrend,
+                    'strong_downtrend': is_strong_downtrend
+                }
+            }
+            
+            # Add to signals list
+            if current_aroon_signal != 0:
+                strength = 3  # Default strength
+                if is_strong_uptrend or is_strong_downtrend:
+                    strength = 4  # Higher strength for strong trends
+                    
+                self.signals.append({
+                    'indicator': 'Aroon',
+                    'signal': 'BUY' if current_aroon_signal == 1 else 'SELL',
+                    'strength': strength
+                })
+        except Exception as e:
+            logger.warning(f"Error calculating Aroon: {e}. Skipping this indicator.")
+            self.indicators_result['aroon'] = {
+                'signal': 0,
+                'values': {
+                    'aroon_up': None,
+                    'aroon_down': None,
+                    'strong_uptrend': False,
+                    'strong_downtrend': False
+                }
+            }
 
     def _calculate_rsi(self):
         """Calculate Relative Strength Index using pandas-ta"""
@@ -577,55 +703,83 @@ class TechnicalAnalysis:
         """Calculate Stochastic Oscillator using pandas-ta"""
         params = config.INDICATORS["stochastic"]
         
-        # Calculate Stochastic using pandas-ta
-        stoch = ta.stoch(
-            high=self.df['high'],
-            low=self.df['low'],
-            close=self.df['close'],
-            k=params['k_period'],
-            d=params['d_period']
-        )
-        
-        # Add Stochastic components to dataframe
-        self.df['stoch_k'] = stoch[f"STOCHk_{params['k_period']}_{params['d_period']}_{params['d_period']}"]
-        self.df['stoch_d'] = stoch[f"STOCHd_{params['k_period']}_{params['d_period']}_{params['d_period']}"]
-        
-        # Generate signals
-        self.df['stoch_signal'] = 0
-        
-        # Buy signal: K crosses above D in oversold region
-        buy_condition = ((self.df['stoch_k'] > self.df['stoch_d']) &  # K above D
-                          (self.df['stoch_k'].shift(1) <= self.df['stoch_d'].shift(1)) &  # Crossover
-                          (self.df['stoch_k'] < params['oversold'] + 10))  # In oversold region
-        
-        # Sell signal: K crosses below D in overbought region
-        sell_condition = ((self.df['stoch_k'] < self.df['stoch_d']) &  # K below D
-                           (self.df['stoch_k'].shift(1) >= self.df['stoch_d'].shift(1)) &  # Crossover
-                           (self.df['stoch_k'] > params['overbought'] - 10))  # In overbought region
-        
-        self.df.loc[buy_condition, 'stoch_signal'] = 1
-        self.df.loc[sell_condition, 'stoch_signal'] = -1
-        
-        # Save to results
-        current_stoch_signal = self.df['stoch_signal'].iloc[-1]
-        
-        self.indicators_result['stochastic'] = {
-            'signal': current_stoch_signal,
-            'values': {
-                'k': round(self.df['stoch_k'].iloc[-1], 2) if not pd.isna(self.df['stoch_k'].iloc[-1]) else None,
-                'd': round(self.df['stoch_d'].iloc[-1], 2) if not pd.isna(self.df['stoch_d'].iloc[-1]) else None,
-                'oversold': params['oversold'],
-                'overbought': params['overbought']
+        try:
+            # Calculate Stochastic using pandas-ta
+            stoch = ta.stoch(
+                high=self.df['high'],
+                low=self.df['low'],
+                close=self.df['close'],
+                k=params['k_period'],
+                d=params['d_period']
+            )
+            
+            # Get column names
+            stoch_columns = stoch.columns.tolist()
+            
+            # Find appropriate columns
+            k_col = next((col for col in stoch_columns if 'STOCHk_' in col), None)
+            d_col = next((col for col in stoch_columns if 'STOCHd_' in col), None)
+            
+            # Fallback to positional if needed
+            if not all([k_col, d_col]) and len(stoch_columns) >= 2:
+                k_col = stoch_columns[0]
+                d_col = stoch_columns[1]
+                
+            if not all([k_col, d_col]):
+                logger.warning(f"Could not find Stochastic columns in: {stoch_columns}")
+                raise ValueError("Could not determine Stochastic column names")
+            
+            # Add Stochastic components to dataframe
+            self.df['stoch_k'] = stoch[k_col]
+            self.df['stoch_d'] = stoch[d_col]
+            
+            # Generate signals
+            self.df['stoch_signal'] = 0
+            
+            # Buy signal: K crosses above D in oversold region
+            buy_condition = ((self.df['stoch_k'] > self.df['stoch_d']) &  # K above D
+                             (self.df['stoch_k'].shift(1) <= self.df['stoch_d'].shift(1)) &  # Crossover
+                             (self.df['stoch_k'] < params['oversold'] + 10))  # In oversold region
+            
+            # Sell signal: K crosses below D in overbought region
+            sell_condition = ((self.df['stoch_k'] < self.df['stoch_d']) &  # K below D
+                              (self.df['stoch_k'].shift(1) >= self.df['stoch_d'].shift(1)) &  # Crossover
+                              (self.df['stoch_k'] > params['overbought'] - 10))  # In overbought region
+            
+            self.df.loc[buy_condition, 'stoch_signal'] = 1
+            self.df.loc[sell_condition, 'stoch_signal'] = -1
+            
+            # Save to results
+            current_stoch_signal = self.df['stoch_signal'].iloc[-1]
+            
+            self.indicators_result['stochastic'] = {
+                'signal': current_stoch_signal,
+                'values': {
+                    'k': round(self.df['stoch_k'].iloc[-1], 2) if not pd.isna(self.df['stoch_k'].iloc[-1]) else None,
+                    'd': round(self.df['stoch_d'].iloc[-1], 2) if not pd.isna(self.df['stoch_d'].iloc[-1]) else None,
+                    'oversold': params['oversold'],
+                    'overbought': params['overbought']
+                }
             }
-        }
-        
-        # Add to signals list
-        if current_stoch_signal != 0:
-            self.signals.append({
-                'indicator': 'Stochastic',
-                'signal': 'BUY' if current_stoch_signal == 1 else 'SELL',
-                'strength': 2
-            })
+            
+            # Add to signals list
+            if current_stoch_signal != 0:
+                self.signals.append({
+                    'indicator': 'Stochastic',
+                    'signal': 'BUY' if current_stoch_signal == 1 else 'SELL',
+                    'strength': 2
+                })
+        except Exception as e:
+            logger.warning(f"Error calculating Stochastic: {e}. Skipping this indicator.")
+            self.indicators_result['stochastic'] = {
+                'signal': 0,
+                'values': {
+                    'k': None,
+                    'd': None,
+                    'oversold': params['oversold'],
+                    'overbought': params['overbought']
+                }
+            }
 
     def _calculate_rate_of_change(self):
         """Calculate Rate of Change (ROC) using pandas-ta"""
@@ -675,84 +829,138 @@ class TechnicalAnalysis:
         """Calculate Bollinger Bands using pandas-ta"""
         params = config.INDICATORS["bollinger_bands"]
         
-        # Calculate Bollinger Bands using pandas-ta
-        bbands = ta.bbands(
-            close=self.df['close'],
-            length=params['period'],
-            std=params['std_dev']
-        )
-        
-        # Add Bollinger Bands components to dataframe
-        self.df['bb_lower'] = bbands[f"BBL_{params['period']}_{params['std_dev']}"]
-        self.df['bb_middle'] = bbands[f"BBM_{params['period']}_{params['std_dev']}"]
-        self.df['bb_upper'] = bbands[f"BBU_{params['period']}_{params['std_dev']}"]
-        
-        # Calculate %B (position within bands)
-        self.df['bb_pct_b'] = (self.df['close'] - self.df['bb_lower']) / (self.df['bb_upper'] - self.df['bb_lower'])
-        
-        # Generate signals - check for RSI confirmation
-        if 'rsi' not in self.df.columns:
-            self._calculate_rsi()
+        try:
+            # Calculate Bollinger Bands using pandas-ta
+            bbands = ta.bbands(
+                close=self.df['close'],
+                length=params['period'],
+                std=params['std_dev']
+            )
             
-        self.df['bb_buy_signal'] = ((self.df['close'] <= self.df['bb_lower']) & 
-                                  (self.df['rsi'] < 30)).astype(int)
-        self.df['bb_sell_signal'] = ((self.df['close'] >= self.df['bb_upper']) & 
-                                   (self.df['rsi'] > 70)).astype(int)
-        
-        # Save to results
-        current_bb_signal = 0
-        if self.df['bb_buy_signal'].iloc[-1] == 1:
-            current_bb_signal = 1
-        elif self.df['bb_sell_signal'].iloc[-1] == 1:
-            current_bb_signal = -1
-        
-        # Calculate Bollinger Bandwidth (indicator of volatility)
-        bb_bandwidth = (self.df['bb_upper'] - self.df['bb_lower']) / self.df['bb_middle']
-        
-        self.indicators_result['bollinger_bands'] = {
-            'signal': current_bb_signal,
-            'values': {
-                'middle': round(self.df['bb_middle'].iloc[-1], 2) if not pd.isna(self.df['bb_middle'].iloc[-1]) else None,
-                'upper': round(self.df['bb_upper'].iloc[-1], 2) if not pd.isna(self.df['bb_upper'].iloc[-1]) else None,
-                'lower': round(self.df['bb_lower'].iloc[-1], 2) if not pd.isna(self.df['bb_lower'].iloc[-1]) else None,
-                'percent_b': round(self.df['bb_pct_b'].iloc[-1], 2) if not pd.isna(self.df['bb_pct_b'].iloc[-1]) else None,
-                'bandwidth': round(bb_bandwidth.iloc[-1], 2) if not pd.isna(bb_bandwidth.iloc[-1]) else None
+            # Get actual column names from the result
+            bbands_columns = bbands.columns.tolist()
+            
+            # Find the appropriate columns by pattern matching
+            lower_band_col = None
+            middle_band_col = None
+            upper_band_col = None
+            
+            # Look for columns by pattern
+            for col in bbands_columns:
+                if 'BBL_' in col:
+                    lower_band_col = col
+                elif 'BBM_' in col:
+                    middle_band_col = col
+                elif 'BBU_' in col:
+                    upper_band_col = col
+            
+            # Fallback - use positional columns if pattern matching fails
+            if lower_band_col is None and len(bbands_columns) >= 3:
+                lower_band_col = bbands_columns[0]
+                middle_band_col = bbands_columns[1]
+                upper_band_col = bbands_columns[2]
+                
+            # Check if we found the columns
+            if lower_band_col is None or middle_band_col is None or upper_band_col is None:
+                logger.warning(f"Could not find Bollinger Bands columns in: {bbands_columns}")
+                raise ValueError("Could not determine Bollinger Bands column names")
+                
+            # Add Bollinger Bands components to dataframe
+            self.df['bb_lower'] = bbands[lower_band_col]
+            self.df['bb_middle'] = bbands[middle_band_col]
+            self.df['bb_upper'] = bbands[upper_band_col]
+            
+            # Calculate %B (position within bands)
+            self.df['bb_pct_b'] = (self.df['close'] - self.df['bb_lower']) / (self.df['bb_upper'] - self.df['bb_lower'])
+            
+            # Generate signals - check for RSI confirmation
+            if 'rsi' not in self.df.columns:
+                self._calculate_rsi()
+                
+            self.df['bb_buy_signal'] = ((self.df['close'] <= self.df['bb_lower']) & 
+                                      (self.df['rsi'] < 30)).astype(int)
+            self.df['bb_sell_signal'] = ((self.df['close'] >= self.df['bb_upper']) & 
+                                       (self.df['rsi'] > 70)).astype(int)
+            
+            # Save to results
+            current_bb_signal = 0
+            if self.df['bb_buy_signal'].iloc[-1] == 1:
+                current_bb_signal = 1
+            elif self.df['bb_sell_signal'].iloc[-1] == 1:
+                current_bb_signal = -1
+            
+            # Calculate Bollinger Bandwidth (indicator of volatility)
+            bb_bandwidth = (self.df['bb_upper'] - self.df['bb_lower']) / self.df['bb_middle']
+            
+            self.indicators_result['bollinger_bands'] = {
+                'signal': current_bb_signal,
+                'values': {
+                    'middle': round(self.df['bb_middle'].iloc[-1], 2) if not pd.isna(self.df['bb_middle'].iloc[-1]) else None,
+                    'upper': round(self.df['bb_upper'].iloc[-1], 2) if not pd.isna(self.df['bb_upper'].iloc[-1]) else None,
+                    'lower': round(self.df['bb_lower'].iloc[-1], 2) if not pd.isna(self.df['bb_lower'].iloc[-1]) else None,
+                    'percent_b': round(self.df['bb_pct_b'].iloc[-1], 2) if not pd.isna(self.df['bb_pct_b'].iloc[-1]) else None,
+                    'bandwidth': round(bb_bandwidth.iloc[-1], 2) if not pd.isna(bb_bandwidth.iloc[-1]) else None
+                }
             }
-        }
-        
-        # Add to signals list
-        if current_bb_signal != 0:
-            self.signals.append({
-                'indicator': 'Bollinger Bands',
-                'signal': 'BUY' if current_bb_signal == 1 else 'SELL',
-                'strength': 3
-            })
+            
+            # Add to signals list
+            if current_bb_signal != 0:
+                self.signals.append({
+                    'indicator': 'Bollinger Bands',
+                    'signal': 'BUY' if current_bb_signal == 1 else 'SELL',
+                    'strength': 3
+                })
+        except Exception as e:
+            logger.warning(f"Error calculating Bollinger Bands: {e}. Skipping this indicator.")
+            self.indicators_result['bollinger_bands'] = {
+                'signal': 0,
+                'values': {
+                    'middle': None,
+                    'upper': None,
+                    'lower': None,
+                    'percent_b': None,
+                    'bandwidth': None
+                }
+            }
 
     def _calculate_atr(self):
         """Calculate Average True Range (ATR) using pandas-ta"""
         params = config.INDICATORS["atr"]
         
-        # Calculate ATR using pandas-ta
-        self.df['atr'] = ta.atr(
-            high=self.df['high'],
-            low=self.df['low'],
-            close=self.df['close'],
-            length=params['period']
-        )
-        
-        # Calculate stop loss levels
-        self.df['atr_buy_stop'] = self.df['close'] - (self.df['atr'] * params['multiplier'])
-        self.df['atr_sell_stop'] = self.df['close'] + (self.df['atr'] * params['multiplier'])
-        
-        # Save to results
-        self.indicators_result['atr'] = {
-            'signal': 0,  # ATR doesn't generate buy/sell signals directly
-            'values': {
-                'atr': round(self.df['atr'].iloc[-1], 2),
-                'buy_stop': round(self.df['atr_buy_stop'].iloc[-1], 2),
-                'sell_stop': round(self.df['atr_sell_stop'].iloc[-1], 2)
+        try:
+            # Calculate ATR using pandas-ta
+            atr_value = ta.atr(
+                high=self.df['high'],
+                low=self.df['low'],
+                close=self.df['close'],
+                length=params['period']
+            )
+            
+            self.df['atr'] = atr_value
+            
+            # Calculate stop loss levels
+            self.df['atr_buy_stop'] = self.df['close'] - (self.df['atr'] * params['multiplier'])
+            self.df['atr_sell_stop'] = self.df['close'] + (self.df['atr'] * params['multiplier'])
+            
+            # Save to results
+            self.indicators_result['atr'] = {
+                'signal': 0,  # ATR doesn't generate buy/sell signals directly
+                'values': {
+                    'atr': round(self.df['atr'].iloc[-1], 2),
+                    'buy_stop': round(self.df['atr_buy_stop'].iloc[-1], 2),
+                    'sell_stop': round(self.df['atr_sell_stop'].iloc[-1], 2)
+                }
             }
-        }
+        except Exception as e:
+            logger.warning(f"Error calculating ATR: {e}. Skipping this indicator.")
+            self.indicators_result['atr'] = {
+                'signal': 0,
+                'values': {
+                    'atr': None,
+                    'buy_stop': None,
+                    'sell_stop': None
+                }
+            }
 
     def _calculate_obv(self):
         """Calculate On-Balance Volume (OBV) using pandas-ta"""
