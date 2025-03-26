@@ -211,8 +211,8 @@ async def analyze_and_generate_signals():
             logger.info(f"Analyzing {symbol} with {len(data)} data points")
             
             # Calculate technical indicators
-            # data['EMA_SHORT'] = calculate_ema(data['Close'], EMA_SHORT)
-            # data['EMA_LONG'] = calculate_ema(data['Close'], EMA_LONG)
+            data['EMA_SHORT'] = calculate_ema(data['Close'], EMA_SHORT)
+            data['EMA_LONG'] = calculate_ema(data['Close'], EMA_LONG)
             data['RSI'] = calculate_rsi(data['Close'], RSI_PERIOD)
             data['MACD'], data['MACD_SIGNAL'] = calculate_macd(data['Close'], MACD_FAST, MACD_SLOW, MACD_SIGNAL)
             data['BB_UPPER'], data['BB_LOWER'] = calculate_bollinger_bands(data['Close'], BB_PERIOD, BB_STDDEV)
@@ -237,8 +237,8 @@ async def analyze_and_generate_signals():
                         f"Technical Indicators:\n"
                         f"RSI: {data['RSI'].iloc[-1]:.2f}\n"
                         f"MACD: {data['MACD'].iloc[-1]:.2f}\n"
-                        # f"EMA (Short): {data['EMA_SHORT'].iloc[-1]:.2f}\n"
-                        # f"EMA (Long): {data['EMA_LONG'].iloc[-1]:.2f}\n"
+                        f"EMA (Short): {data['EMA_SHORT'].iloc[-1]:.2f}\n"
+                        f"EMA (Long): {data['EMA_LONG'].iloc[-1]:.2f}\n"
                         f"ADX: {data['ADX'].iloc[-1]:.2f}\n"
                     )
                     await send_telegram_message(message)
