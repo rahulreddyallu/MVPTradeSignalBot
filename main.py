@@ -11,6 +11,7 @@ import sys
 import traceback
 import schedule
 import asyncio
+import pandas as pd
 
 # Ensure aiogram is installed
 try:
