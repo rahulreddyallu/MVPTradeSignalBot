@@ -43,8 +43,10 @@ def escape_telegram_markdown(text):
     """Escape special characters for Telegram MarkdownV2 formatting."""
     if not text:
         return "N/A"
+    # List of all special characters that need to be escaped in MarkdownV2
     special_chars = r'_*[]()~`>#+-=|{}.!'
-    return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text)
+    escaped_text = re.sub(f'([{re.escape(special_chars)}])', r'\\\1', str(text))
+    return escaped_text
 
 
 # Create logs directory if it doesn't exist
@@ -81,7 +83,8 @@ async def send_telegram_message(message, retry_attempts=5):
         delay = 1  # Initial delay in seconds
         for attempt in range(retry_attempts):
             try:
-                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="MarkdownV2")
+                # Use plain text mode instead of Markdown to avoid parsing issues
+                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode=None)
                 break
             except Exception as e:
                 if "Too Many Requests" in str(e):
@@ -99,17 +102,17 @@ def send_startup_notification():
     try:
         loop = asyncio.get_event_loop()
         message = f"""
-🚀 *NIFTY 200 Trading Signal Bot Started* 🚀
+🚀 NIFTY 200 Trading Signal Bot Started 🚀
 
-*Version:* 2.0.0
-*Started at:* {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-*Analysis Frequency:* Every {ANALYSIS_FREQUENCY} hour(s)
-*Stocks Monitored:* {len(STOCK_LIST)} NIFTY 200 stocks
-*Timeframes Analyzed:* 
+Version: 2.0.0
+Started at: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Analysis Frequency: Every {ANALYSIS_FREQUENCY} hour(s)
+Stocks Monitored: {len(STOCK_LIST)} NIFTY 200 stocks
+Timeframes Analyzed: 
 - Short Term (3-6 months)
 - Long Term (>1 year)
 
-*New Features:*
+New Features:
 • Enhanced pattern detection (candlestick & chart patterns)
 • Improved signal generation algorithm
 • Better risk management with ATR-based stop losses
@@ -242,7 +245,6 @@ async def analyze_and_generate_signals():
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     ]
     
-
     # Process each symbol in STOCK_LIST
     for symbol in STOCK_LIST:
         logger.info(f"Processing symbol: {symbol}")
@@ -275,10 +277,13 @@ async def analyze_and_generate_signals():
             buy_signals_count = signal_results['buy_signals_count']
             sell_signals_count = signal_results['sell_signals_count']
             
+            # Fix for truncated summary in the original code
+            signal_summary = f"{'Bullish' if signal_results['signal'] == 'BUY' else 'Bearish' if signal_results['signal'] == 'SELL' else 'Neutral'} signal with {buy_signals_count} buy vs {sell_signals_count} sell signals"
+            
             overall_signal = {
                 'signal': signal_results['signal'],
                 'strength': signal_results['strength'],
-                'summary': f"{'Bullish' if signal_results['signal'] == 'BUY' else 'Bearish' if signal_results['signal'] == 'SELL' else 'Neutral'} signal with {buy_signals_count if signal_results['signal'] == 'BUY' else sell_signals_count} indicators confirming"
+                'summary': signal_summary
             }
             
             if signals and overall_signal['strength'] >= MINIMUM_SIGNAL_STRENGTH:
@@ -416,21 +421,21 @@ async def analyze_and_generate_signals():
                 # Check if we have any patterns at all
                 has_patterns = bool(patterns_result['candlestick'] or patterns_result['chart'])
                 
-               # Add candlestick patterns
+               # Add candlestick patterns - removed markdown formatting that was causing issues
                 if patterns_result['candlestick']:
-                    patterns_text.append("• 📊 *Candlestick Patterns:*")
+                    patterns_text.append("• 📊 Candlestick Patterns:")
                     for pattern_name, pattern_data in patterns_result['candlestick'].items():
                         signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
                         strength_stars = "⭐" * pattern_data['strength']  # Visual indication of strength
-                        patterns_text.append(f"  • {escape_telegram_markdown(pattern_name.replace('_', ' ').title())}: {signal_type} {strength_stars}")
+                        patterns_text.append(f"  • {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}")
                 
-                # Add chart patterns
+                # Add chart patterns - removed markdown formatting that was causing issues
                 if patterns_result['chart']:
-                    patterns_text.append("\n• 📈 *Chart Patterns:*")
+                    patterns_text.append("\n• 📈 Chart Patterns:")
                     for pattern_name, pattern_data in patterns_result['chart'].items():
                         signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
                         strength_stars = "⭐" * pattern_data['strength']  # Visual indication of strength
-                        patterns_text.append(f"  • {escape_telegram_markdown(pattern_name.replace('_', ' ').title())}: {signal_type} {strength_stars}")
+                        patterns_text.append(f"  • {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}")
 
                 # If no patterns detected
                 if not has_patterns:
@@ -456,8 +461,27 @@ async def analyze_and_generate_signals():
                 else:
                     recommendation = "No clear signal. Consider staying out of the market."
                 
-                # Format message using template
-                message = SIGNAL_MESSAGE_TEMPLATE.format(
+                # Format message using template but with plain text (no markdown)
+                message = """
+TRADING SIGNAL ALERT
+
+Stock: {stock_symbol}
+Current Price: ₹{current_price}
+Signal Type: {signal_type}
+Timeframe: {timeframe}
+Strength: {strength}/5
+
+Technical Indicators:
+{indicators}
+
+Patterns Detected:
+{patterns}
+
+Recommendation:
+{recommendation}
+
+Generated: {timestamp}
+""".format(
                     stock_name="",  # Would need company name lookup
                     stock_symbol=symbol,
                     current_price=f"{data['Close'].iloc[-1]:.2f}",
@@ -491,27 +515,27 @@ async def analyze_and_generate_signals():
             daily_report.append(f"\n{symbol}: Error during analysis - {str(e)[:50]}...")
             continue
     
-        # Finalize daily report
-        daily_report.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")  # Safe separator
-        daily_report.append(escape_telegram_markdown("*Analysis Summary:*"))  # Ensure markdown safety
-        daily_report.append(f"• Analyzed: {escape_telegram_markdown(str(successful_analyses) if successful_analyses is not None else '0')} symbols")
-        daily_report.append(f"• Failed: {escape_telegram_markdown(str(failed_analyses) if failed_analyses is not None else '0')} symbols") 
-        daily_report.append(f"• Total signals generated: {escape_telegram_markdown(str(total_signals) if total_signals is not None else '0')} "
-                            f"({escape_telegram_markdown(str(buy_signals) if buy_signals is not None else '0')} BUY, "
-                            f"{escape_telegram_markdown(str(sell_signals) if sell_signals is not None else '0')} SELL)")
-        daily_report.append(f"• Report time: {escape_telegram_markdown(current_date_str)} UTC")
-        
-        # Send daily summary report via Telegram
-        if successful_analyses > 0:
-            await send_telegram_message("\n".join(daily_report))
-        
-        # Log summary statistics
-        logger.info(f"Analysis completed. Processed {len(STOCK_LIST)} symbols.")
-        logger.info(f"Successful analyses: {successful_analyses if successful_analyses is not None else 0}")
-        logger.info(f"Failed analyses: {failed_analyses if failed_analyses is not None else 0}")
-        logger.info(f"Total signals generated: {total_signals if total_signals is not None else 0} "
-                    f"({buy_signals if buy_signals is not None else 0} BUY, {sell_signals if sell_signals is not None else 0} SELL)")
-        logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    # Finalize daily report - using plain text instead of markdown
+    daily_report.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")  # Safe separator
+    daily_report.append("Analysis Summary:")
+    daily_report.append(f"• Analyzed: {successful_analyses if successful_analyses is not None else 0} symbols")
+    daily_report.append(f"• Failed: {failed_analyses if failed_analyses is not None else 0} symbols") 
+    daily_report.append(f"• Total signals generated: {total_signals if total_signals is not None else 0} "
+                        f"({buy_signals if buy_signals is not None else 0} BUY, "
+                        f"{sell_signals if sell_signals is not None else 0} SELL)")
+    daily_report.append(f"• Report time: {current_date_str} UTC")
+    
+    # Send daily summary report via Telegram
+    if successful_analyses > 0:
+        await send_telegram_message("\n".join(daily_report))
+    
+    # Log summary statistics
+    logger.info(f"Analysis completed. Processed {len(STOCK_LIST)} symbols.")
+    logger.info(f"Successful analyses: {successful_analyses if successful_analyses is not None else 0}")
+    logger.info(f"Failed analyses: {failed_analyses if failed_analyses is not None else 0}")
+    logger.info(f"Total signals generated: {total_signals if total_signals is not None else 0} "
+                f"({buy_signals if buy_signals is not None else 0} BUY, {sell_signals if sell_signals is not None else 0} SELL)")
+    logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
     
 def run_trading_signals():
@@ -535,10 +559,10 @@ def run_trading_signals():
         try:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(send_telegram_message(f"""
-⚠️ *ERROR: Trading Signal Bot Failure* ⚠️
+⚠️ ERROR: Trading Signal Bot Failure ⚠️
 
-*Time:* {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-*Error:* {str(e)}
+Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Error: {str(e)}
 
 Please check the logs for more details.
             """))
@@ -567,8 +591,7 @@ def test_telegram_connection():
     
     try:
         loop = asyncio.get_event_loop()
-        message = escape_telegram_markdown("🔍 *Test Message* \- NIFTY 200 Trading Signal Bot connection test successful!")
-        result = loop.run_until_complete(send_telegram_message(message))
+        result = loop.run_until_complete(send_telegram_message("🔍 Test Message - NIFTY 200 Trading Signal Bot connection test successful!"))
         
         if result:
             logger.info("✅ Successfully sent test message to Telegram")
@@ -579,7 +602,6 @@ def test_telegram_connection():
     except Exception as e:
         logger.error(f"❌ Error connecting to Telegram API: {str(e)}")
         return False
-
 
 def schedule_analysis():
     """Schedule the analysis based on config"""
