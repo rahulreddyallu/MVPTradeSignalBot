@@ -37,6 +37,16 @@ importlib.reload(compute)
 # Import after reload
 from compute import TechnicalAnalysis
 
+import re
+
+def escape_telegram_markdown(text):
+    """Escape special characters for Telegram MarkdownV2 formatting."""
+    if not text:
+        return "N/A"
+    special_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text)
+
+
 # Create logs directory if it doesn't exist
 os.makedirs('logs', exist_ok=True)
 
@@ -229,8 +239,9 @@ async def analyze_and_generate_signals():
         f"📈 TRADING SIGNALS REPORT 📉",
         f"Date: {current_date_str} UTC",
         f"Analyzing {len(STOCK_LIST)} symbols with {HISTORICAL_DAYS} days of historical data",
-        "-" * 40
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     ]
+    
 
     # Process each symbol in STOCK_LIST
     for symbol in STOCK_LIST:
@@ -405,22 +416,22 @@ async def analyze_and_generate_signals():
                 # Check if we have any patterns at all
                 has_patterns = bool(patterns_result['candlestick'] or patterns_result['chart'])
                 
-                # Add candlestick patterns
+               # Add candlestick patterns
                 if patterns_result['candlestick']:
-                    patterns_text.append("• 📊 Candlestick Patterns:")
+                    patterns_text.append("• 📊 *Candlestick Patterns:*")
                     for pattern_name, pattern_data in patterns_result['candlestick'].items():
                         signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
                         strength_stars = "⭐" * pattern_data['strength']  # Visual indication of strength
-                        patterns_text.append(f"  - {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}")
+                        patterns_text.append(f"  • {escape_telegram_markdown(pattern_name.replace('_', ' ').title())}: {signal_type} {strength_stars}")
                 
                 # Add chart patterns
                 if patterns_result['chart']:
-                    patterns_text.append("• 📈 Chart Patterns:")
+                    patterns_text.append("\n• 📈 *Chart Patterns:*")
                     for pattern_name, pattern_data in patterns_result['chart'].items():
                         signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
                         strength_stars = "⭐" * pattern_data['strength']  # Visual indication of strength
-                        patterns_text.append(f"  - {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}")
-                
+                        patterns_text.append(f"  • {escape_telegram_markdown(pattern_name.replace('_', ' ').title())}: {signal_type} {strength_stars}")
+
                 # If no patterns detected
                 if not has_patterns:
                     patterns_text = ["No specific chart patterns detected"]
@@ -480,24 +491,28 @@ async def analyze_and_generate_signals():
             daily_report.append(f"\n{symbol}: Error during analysis - {str(e)[:50]}...")
             continue
     
-    # Finalize daily report
-    daily_report.append("\n" + "-" * 40)
-    daily_report.append(f"Analysis Summary:")
-    daily_report.append(f"• Analyzed: {successful_analyses} symbols")
-    daily_report.append(f"• Failed: {failed_analyses} symbols") 
-    daily_report.append(f"• Total signals generated: {total_signals} ({buy_signals} BUY, {sell_signals} SELL)")
-    daily_report.append(f"• Report time: {current_date_str} UTC")
-    
-    # Send daily summary report via Telegram
-    if successful_analyses > 0:
-        await send_telegram_message("\n".join(daily_report))
-    
-    # Log summary statistics
-    logger.info(f"Analysis completed. Processed {len(STOCK_LIST)} symbols.")
-    logger.info(f"Successful analyses: {successful_analyses}")
-    logger.info(f"Failed analyses: {failed_analyses}")
-    logger.info(f"Total signals generated: {total_signals} ({buy_signals} BUY, {sell_signals} SELL)")
-    logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        # Finalize daily report
+        daily_report.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")  # Safe separator
+        daily_report.append(escape_telegram_markdown("*Analysis Summary:*"))  # Ensure markdown safety
+        daily_report.append(f"• Analyzed: {escape_telegram_markdown(str(successful_analyses) if successful_analyses is not None else '0')} symbols")
+        daily_report.append(f"• Failed: {escape_telegram_markdown(str(failed_analyses) if failed_analyses is not None else '0')} symbols") 
+        daily_report.append(f"• Total signals generated: {escape_telegram_markdown(str(total_signals) if total_signals is not None else '0')} "
+                            f"({escape_telegram_markdown(str(buy_signals) if buy_signals is not None else '0')} BUY, "
+                            f"{escape_telegram_markdown(str(sell_signals) if sell_signals is not None else '0')} SELL)")
+        daily_report.append(f"• Report time: {escape_telegram_markdown(current_date_str)} UTC")
+        
+        # Send daily summary report via Telegram
+        if successful_analyses > 0:
+            await send_telegram_message("\n".join(daily_report))
+        
+        # Log summary statistics
+        logger.info(f"Analysis completed. Processed {len(STOCK_LIST)} symbols.")
+        logger.info(f"Successful analyses: {successful_analyses if successful_analyses is not None else 0}")
+        logger.info(f"Failed analyses: {failed_analyses if failed_analyses is not None else 0}")
+        logger.info(f"Total signals generated: {total_signals if total_signals is not None else 0} "
+                    f"({buy_signals if buy_signals is not None else 0} BUY, {sell_signals if sell_signals is not None else 0} SELL)")
+        logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+
     
 def run_trading_signals():
     """Run the trading signal generation process"""
