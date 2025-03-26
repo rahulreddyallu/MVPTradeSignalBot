@@ -314,7 +314,7 @@ class TechnicalAnalysis:
     
     def _calculate_supertrend(self):
         """Calculate Supertrend indicator using pandas-ta"""
-        params = INDICATORS["supertrend"]
+        params = config.INDICATORS["supertrend"]
         
         try:
             # Calculate Supertrend using pandas-ta
