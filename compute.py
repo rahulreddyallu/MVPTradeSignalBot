@@ -1594,13 +1594,15 @@ class TradingSignalBot:
             logger.info(f"Sent {signals['signal']} signal for {stock_symbol} ({timeframe}) - {signals['buy_signals_count']} buy vs {signals['sell_signals_count']} sell signals")
         
         return signals
-    
+
     def escape_telegram_markdown(text):
         """Escape special characters for Telegram MarkdownV2 formatting."""
         if not text:
             return "N/A"
-        special_chars = r'_*[]()~`>#+-=|{}.!'
-        return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text)
+        special_chars = r'_*()~`>#+-=|{}.!'
+        text = re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text)  # Escape standard special chars
+        text = text.replace('[', '\\[').replace(']', '\\]')  # Escape square brackets manually
+        return text
     
     def _format_signal_message(self, stock_name, stock_symbol, signals, timeframe):
         """Format the signal message for Telegram"""
@@ -1632,7 +1634,6 @@ class TradingSignalBot:
         has_patterns = any(patterns for pattern_type, patterns in signals.get('patterns', {}).items() if patterns)
     
         if has_patterns:
-            # Process candlestick patterns
             if 'candlestick' in signals.get('patterns', {}):
                 patterns_text += "📊 *Candlestick Patterns:*\n"
                 for pattern_name, pattern_data in signals['patterns']['candlestick'].items():
@@ -1640,33 +1641,36 @@ class TradingSignalBot:
                     strength_stars = "⭐" * pattern_data['strength']
                     patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}\n"
     
-            # Process chart patterns
             if 'chart' in signals.get('patterns', {}):
                 patterns_text += "\n📈 *Chart Patterns:*\n"
                 for pattern_name, pattern_data in signals['patterns']['chart'].items():
                     signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
                     strength_stars = "⭐" * pattern_data['strength']
                     patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}\n"
+            patterns_text = patterns_text.strip()  # Remove extra line breaks
         else:
-            patterns_text = "• No significant patterns detected\n"
+            patterns_text = "• No significant patterns detected"
     
         # Format recommendation with more details
-        if signals.get('signal') == 'BUY':
+        signal_type = signals.get('signal', "").upper()
+        if signal_type == 'BUY':
             recommendation = (
                 f"Strong BUY recommendation based on {signals.get('buy_signals_count', 0)} bullish signals "
                 f"vs {signals.get('sell_signals_count', 0)} bearish signals."
             )
             stop_loss = signals.get('indicators', {}).get('atr', {}).get('values', {}).get('buy_stop')
-            if stop_loss:
-                recommendation += f"\n\nSuggested stop loss: ₹{stop_loss:.2f} (ATR-based)"
-        else:
+        elif signal_type == 'SELL':
             recommendation = (
                 f"Strong SELL recommendation based on {signals.get('sell_signals_count', 0)} bearish signals "
                 f"vs {signals.get('buy_signals_count', 0)} bullish signals."
             )
             stop_loss = signals.get('indicators', {}).get('atr', {}).get('values', {}).get('sell_stop')
-            if stop_loss:
-                recommendation += f"\n\nSuggested stop loss: ₹{stop_loss:.2f} (ATR-based)"
+        else:
+            recommendation = "No strong buy or sell signal detected."
+            stop_loss = None
+    
+        if stop_loss:
+            recommendation += f"\n\nSuggested stop loss: ₹{stop_loss:.2f} (ATR-based)"
     
         # Escape text for Telegram Markdown
         message = config.SIGNAL_MESSAGE_TEMPLATE.format(
