@@ -60,7 +60,7 @@ async def send_telegram_message(message, retry_attempts=5):
         delay = 1  # Initial delay in seconds
         for attempt in range(retry_attempts):
             try:
-                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="Markdown")
                 break
             except Exception as e:
                 if "Too Many Requests" in str(e):
@@ -80,13 +80,18 @@ def send_startup_notification():
         message = f"""
 🚀 *NIFTY 200 Trading Signal Bot Started* 🚀
 
-*Version:* 1.0.0
+*Version:* 2.0.0
 *Started at:* {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 *Analysis Frequency:* Every {ANALYSIS_FREQUENCY} hour(s)
 *Stocks Monitored:* {len(STOCK_LIST)} NIFTY 200 stocks
 *Timeframes Analyzed:* 
 - Short Term (3-6 months)
 - Long Term (>1 year)
+
+*New Features:*
+• Enhanced pattern detection (candlestick & chart patterns)
+• Improved signal generation algorithm
+• Better risk management with ATR-based stop losses
 
 Bot is now actively monitoring for trading signals.
         """
@@ -152,6 +157,10 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
             # Sort by timestamp (oldest to newest)
             df.sort_index(inplace=True)
             
+            # Check for minimum data points required for pattern detection
+            if len(df) < 50:  # Minimum required for reliable chart pattern detection
+                logger.warning(f"Retrieved only {len(df)} candles for {symbol}, which may be insufficient for reliable pattern detection")
+                
             logger.info(f"Successfully fetched {len(df)} candles for {symbol}")
             return df
         else:
@@ -173,7 +182,7 @@ def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
 async def analyze_and_generate_signals():
     """
     Fetches historical data for symbols in STOCK_LIST, performs technical analysis,
-    and generates trading signals.
+    and generates trading signals with enhanced pattern detection.
     """
     # Import necessary configurations
     from config import SIGNAL_MESSAGE_TEMPLATE, MINIMUM_SIGNAL_STRENGTH
@@ -183,7 +192,7 @@ async def analyze_and_generate_signals():
     logger.info(f"Starting analysis at {current_datetime.strftime('%Y-%m-%d %H:%M:%S')} UTC")
     
     # Current date/time
-    current_date_str = "2025-03-26 02:25:45"
+    current_date_str = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
     logger.info(f"Analysis date: {current_date_str}")
     
     # Calculate date range (based on HISTORICAL_DAYS constant)
@@ -201,6 +210,8 @@ async def analyze_and_generate_signals():
     successful_analyses = 0
     failed_analyses = 0
     total_signals = 0
+    buy_signals = 0
+    sell_signals = 0
     
     # Header for daily report
     daily_report = [
@@ -229,25 +240,33 @@ async def analyze_and_generate_signals():
             renamed_data = data.copy()
             renamed_data.columns = [col.lower() for col in renamed_data.columns]
             
-            # Perform technical analysis
+            # Perform technical analysis with enhanced pattern detection
             analyzer = TechnicalAnalysis(renamed_data)
             
-            # Generate signals using comprehensive analysis (indicators + patterns)
+            # Generate comprehensive signals (indicators + patterns)
             signal_results = analyzer.generate_signals()
             
             # Extract data from results
             indicators_result = signal_results['indicators']
             patterns_result = signal_results['patterns']
             signals = signal_results['individual_signals']
+            buy_signals_count = signal_results['buy_signals_count']
+            sell_signals_count = signal_results['sell_signals_count']
+            
             overall_signal = {
                 'signal': signal_results['signal'],
                 'strength': signal_results['strength'],
-                'summary': f"{'Bullish' if signal_results['signal'] == 'BUY' else 'Bearish' if signal_results['signal'] == 'SELL' else 'Neutral'} signal with {signal_results['buy_signals_count' if signal_results['signal'] == 'BUY' else 'sell_signals_count']} indicators confirming"
+                'summary': f"{'Bullish' if signal_results['signal'] == 'BUY' else 'Bearish' if signal_results['signal'] == 'SELL' else 'Neutral'} signal with {buy_signals_count if signal_results['signal'] == 'BUY' else sell_signals_count} indicators confirming"
             }
             
             if signals and overall_signal['strength'] >= MINIMUM_SIGNAL_STRENGTH:
-                logger.info(f"Generated {len(signals)} signals for {symbol} with overall strength {overall_signal['strength']}/5")
-                total_signals += len(signals)
+                logger.info(f"Generated signal for {symbol}: {overall_signal['signal']} (Strength: {overall_signal['strength']}/5) - {buy_signals_count} buy vs {sell_signals_count} sell signals")
+                total_signals += 1
+                
+                if overall_signal['signal'] == 'BUY':
+                    buy_signals += 1
+                elif overall_signal['signal'] == 'SELL':
+                    sell_signals += 1
                 
                 # Add to daily report
                 daily_report.append(f"\n{symbol}: {overall_signal['signal']} (Strength: {overall_signal['strength']}/5)")
@@ -372,37 +391,46 @@ async def analyze_and_generate_signals():
                 # Format patterns text using detected patterns
                 patterns_text = []
                 
+                # Check if we have any patterns at all
+                has_patterns = bool(patterns_result['candlestick'] or patterns_result['chart'])
+                
                 # Add candlestick patterns
                 if patterns_result['candlestick']:
-                    patterns_text.append("• Candlestick Patterns:")
+                    patterns_text.append("• 📊 Candlestick Patterns:")
                     for pattern_name, pattern_data in patterns_result['candlestick'].items():
                         signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
-                        patterns_text.append(f"  - {pattern_name.replace('_', ' ').title()}: {signal_type}")
+                        strength_stars = "⭐" * pattern_data['strength']  # Visual indication of strength
+                        patterns_text.append(f"  - {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}")
                 
                 # Add chart patterns
                 if patterns_result['chart']:
-                    patterns_text.append("• Chart Patterns:")
+                    patterns_text.append("• 📈 Chart Patterns:")
                     for pattern_name, pattern_data in patterns_result['chart'].items():
                         signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
-                        patterns_text.append(f"  - {pattern_name.replace('_', ' ').title()}: {signal_type}")
+                        strength_stars = "⭐" * pattern_data['strength']  # Visual indication of strength
+                        patterns_text.append(f"  - {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}")
                 
                 # If no patterns detected
-                if not patterns_text:
+                if not has_patterns:
                     patterns_text = ["No specific chart patterns detected"]
                 
                 # Generate recommendation based on overall signal
                 if overall_signal['signal'] == 'BUY':
-                    recommendation = f"Consider LONG position. {overall_signal['summary']}."
+                    recommendation = f"Consider LONG position based on {buy_signals_count} bullish signals vs {sell_signals_count} bearish signals. {overall_signal['summary']}."
                     if 'atr' in indicators_result:
                         stop_loss = indicators_result['atr']['values'].get('buy_stop')
                         if stop_loss:
-                            recommendation += f" Set stop loss at {stop_loss:.2f}"
+                            target_price = data['Close'].iloc[-1] + (data['Close'].iloc[-1] - stop_loss) * 2  # 2:1 reward-to-risk ratio
+                            recommendation += f"\n\nSuggested stop loss: {stop_loss:.2f}"
+                            recommendation += f"\nPotential target: {target_price:.2f} (2:1 reward-to-risk)"
                 elif overall_signal['signal'] == 'SELL':
-                    recommendation = f"Consider SHORT position. {overall_signal['summary']}."
+                    recommendation = f"Consider SHORT position based on {sell_signals_count} bearish signals vs {buy_signals_count} bullish signals. {overall_signal['summary']}."
                     if 'atr' in indicators_result:
                         stop_loss = indicators_result['atr']['values'].get('sell_stop')
                         if stop_loss:
-                            recommendation += f" Set stop loss at {stop_loss:.2f}"
+                            target_price = data['Close'].iloc[-1] - (stop_loss - data['Close'].iloc[-1]) * 2  # 2:1 reward-to-risk ratio
+                            recommendation += f"\n\nSuggested stop loss: {stop_loss:.2f}"
+                            recommendation += f"\nPotential target: {target_price:.2f} (2:1 reward-to-risk)"
                 else:
                     recommendation = "No clear signal. Consider staying out of the market."
                 
@@ -417,7 +445,7 @@ async def analyze_and_generate_signals():
                     indicators="\n".join(indicators_text),
                     patterns="\n".join(patterns_text),
                     recommendation=recommendation,
-                    timestamp=current_date_str
+                    timestamp=signal_results.get('timestamp', current_date_str)
                 )
                 
                 # Send via Telegram
@@ -446,7 +474,7 @@ async def analyze_and_generate_signals():
     daily_report.append(f"Analysis Summary:")
     daily_report.append(f"• Analyzed: {successful_analyses} symbols")
     daily_report.append(f"• Failed: {failed_analyses} symbols") 
-    daily_report.append(f"• Total signals generated: {total_signals}")
+    daily_report.append(f"• Total signals generated: {total_signals} ({buy_signals} BUY, {sell_signals} SELL)")
     daily_report.append(f"• Report time: {current_date_str} UTC")
     
     # Send daily summary report via Telegram
@@ -457,7 +485,7 @@ async def analyze_and_generate_signals():
     logger.info(f"Analysis completed. Processed {len(STOCK_LIST)} symbols.")
     logger.info(f"Successful analyses: {successful_analyses}")
     logger.info(f"Failed analyses: {failed_analyses}")
-    logger.info(f"Total signals generated: {total_signals}")
+    logger.info(f"Total signals generated: {total_signals} ({buy_signals} BUY, {sell_signals} SELL)")
     logger.info(f"Analysis completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     
 def run_trading_signals():
@@ -479,6 +507,7 @@ def run_trading_signals():
         
         # Send error notification
         try:
+            loop = asyncio.get_event_loop()
             loop.run_until_complete(send_telegram_message(f"""
 ⚠️ *ERROR: Trading Signal Bot Failure* ⚠️
 
@@ -557,6 +586,7 @@ def main():
     """Main function to run the Trading Signal Bot"""
     logger.info("=" * 50)
     logger.info("NIFTY 200 Trading Signal Bot - Starting Up")
+    logger.info("Enhanced with Pattern Detection - Version 2.0")
     logger.info("=" * 50)
     
     # Test connections
