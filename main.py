@@ -23,6 +23,7 @@ except ImportError:
 from upstox_client.api_client import ApiClient
 from upstox_client.api.market_quote_api import MarketQuoteApi  # Correct import
 from upstox_client.api.history_api import HistoryApi
+from compute import TechnicalAnalysis
 from config import *
 from compute import *
 
