@@ -567,7 +567,8 @@ def test_telegram_connection():
     
     try:
         loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(send_telegram_message("🔍 *Test Message* - NIFTY 200 Trading Signal Bot connection test successful!"))
+        message = escape_telegram_markdown("🔍 *Test Message* \- NIFTY 200 Trading Signal Bot connection test successful!")
+        result = loop.run_until_complete(send_telegram_message(message))
         
         if result:
             logger.info("✅ Successfully sent test message to Telegram")
@@ -578,6 +579,7 @@ def test_telegram_connection():
     except Exception as e:
         logger.error(f"❌ Error connecting to Telegram API: {str(e)}")
         return False
+
 
 def schedule_analysis():
     """Schedule the analysis based on config"""
