@@ -231,9 +231,19 @@ async def analyze_and_generate_signals():
             
             # Perform technical analysis
             analyzer = TechnicalAnalysis(renamed_data)
-            indicators_result = analyzer.calculate_all_indicators()
-            signals = analyzer.signals
-            overall_signal = analyzer.get_overall_signal()
+            
+            # Generate signals using comprehensive analysis (indicators + patterns)
+            signal_results = analyzer.generate_signals()
+            
+            # Extract data from results
+            indicators_result = signal_results['indicators']
+            patterns_result = signal_results['patterns']
+            signals = signal_results['individual_signals']
+            overall_signal = {
+                'signal': signal_results['signal'],
+                'strength': signal_results['strength'],
+                'summary': f"{'Bullish' if signal_results['signal'] == 'BUY' else 'Bearish' if signal_results['signal'] == 'SELL' else 'Neutral'} signal with {signal_results['buy_signals_count' if signal_results['signal'] == 'BUY' else 'sell_signals_count']} indicators confirming"
+            }
             
             if signals and overall_signal['strength'] >= MINIMUM_SIGNAL_STRENGTH:
                 logger.info(f"Generated {len(signals)} signals for {symbol} with overall strength {overall_signal['strength']}/5")
@@ -303,7 +313,7 @@ async def analyze_and_generate_signals():
                     if k_value and d_value:
                         indicators_text.append(f"• Stochastic: %K {k_value:.2f} | %D {d_value:.2f}")
                 
-                # 7. Parabolic SAR (missed in previous version)
+                # 7. Parabolic SAR
                 if 'parabolic_sar' in indicators_result:
                     psar_data = indicators_result['parabolic_sar']['values']
                     sar_value = psar_data.get('sar')
@@ -311,7 +321,7 @@ async def analyze_and_generate_signals():
                     if sar_value:
                         indicators_text.append(f"• Parabolic SAR: {sar_value:.2f} | Trend: {trend}")
                 
-                # 8. Aroon (missed in previous version)
+                # 8. Aroon
                 if 'aroon' in indicators_result:
                     aroon_data = indicators_result['aroon']['values']
                     aroon_up = aroon_data.get('aroon_up')
@@ -323,7 +333,7 @@ async def analyze_and_generate_signals():
                         trend_str = "Strong Uptrend" if strong_uptrend else "Strong Downtrend" if strong_downtrend else "Neutral"
                         indicators_text.append(f"• Aroon: Up {aroon_up:.2f} | Down {aroon_down:.2f} | {trend_str}")
                 
-                # 9. Rate of Change (missed in previous version)
+                # 9. Rate of Change
                 if 'roc' in indicators_result:
                     roc_data = indicators_result['roc']['values']
                     roc_value = roc_data.get('roc')
@@ -344,13 +354,13 @@ async def analyze_and_generate_signals():
                     elif overall_signal['signal'] == 'SELL' and sell_stop:
                         indicators_text.append(f"  - Suggested Stop Loss: {sell_stop:.2f}")
                 
-                # 11. OBV (missed in previous version)
+                # 11. OBV
                 if 'obv' in indicators_result:
                     obv_data = indicators_result['obv']['values']
                     rising = obv_data.get('rising')
                     indicators_text.append(f"• On-Balance Volume: {'Rising' if rising else 'Falling'}")
                 
-                # 12. VWAP (missed in previous version)
+                # 12. VWAP
                 if 'vwap' in indicators_result:
                     vwap_data = indicators_result['vwap']['values']
                     vwap_value = vwap_data.get('vwap')
@@ -359,8 +369,26 @@ async def analyze_and_generate_signals():
                         position = "Above VWAP" if price_to_vwap > 1 else "Below VWAP"
                         indicators_text.append(f"• VWAP: {vwap_value:.2f} | Price: {position} ({price_to_vwap:.2f}x)")
                 
-                # Format patterns text (none detected in current implementation)
-                patterns_text = ["No specific chart patterns detected"]
+                # Format patterns text using detected patterns
+                patterns_text = []
+                
+                # Add candlestick patterns
+                if patterns_result['candlestick']:
+                    patterns_text.append("• Candlestick Patterns:")
+                    for pattern_name, pattern_data in patterns_result['candlestick'].items():
+                        signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
+                        patterns_text.append(f"  - {pattern_name.replace('_', ' ').title()}: {signal_type}")
+                
+                # Add chart patterns
+                if patterns_result['chart']:
+                    patterns_text.append("• Chart Patterns:")
+                    for pattern_name, pattern_data in patterns_result['chart'].items():
+                        signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
+                        patterns_text.append(f"  - {pattern_name.replace('_', ' ').title()}: {signal_type}")
+                
+                # If no patterns detected
+                if not patterns_text:
+                    patterns_text = ["No specific chart patterns detected"]
                 
                 # Generate recommendation based on overall signal
                 if overall_signal['signal'] == 'BUY':
