@@ -81,7 +81,7 @@ async def send_telegram_message(message, retry_attempts=5):
         delay = 1  # Initial delay in seconds
         for attempt in range(retry_attempts):
             try:
-                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="Markdown")
+                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="MarkdownV2")
                 break
             except Exception as e:
                 if "Too Many Requests" in str(e):
