@@ -7,6 +7,7 @@ import pandas as pd
 import pandas_ta as ta
 import numpy as np
 import datetime
+import re
 import time
 import json
 import logging
@@ -1594,89 +1595,84 @@ class TradingSignalBot:
             logger.info(f"Sent {signals['signal']} signal for {stock_symbol} ({timeframe}) - {signals['buy_signals_count']} buy vs {signals['sell_signals_count']} sell signals")
         
         return signals
+
+    def escape_telegram_markdown(text):
+        """Escape special characters for Telegram MarkdownV2 formatting."""
+        special_chars = r'_*[]()~`>#+-=|{}.!'
+        return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text or "N/A")
     
     def _format_signal_message(self, stock_name, stock_symbol, signals, timeframe):
         """Format the signal message for Telegram"""
+        
         # Format indicators section
         indicators_text = ""
-        for indicator, values in signals['indicators'].items():
+        for indicator, values in signals.get('indicators', {}).items():
             if values.get('signal', 0) != 0:
                 signal_type = "🟢 BUY" if values['signal'] == 1 else "🔴 SELL"
                 indicators_text += f"• {indicator.replace('_', ' ').title()}: {signal_type}\n"
-                
-                # Add key indicator values for more context
+    
+                # Add key indicator values for context
                 if indicator == 'rsi':
-                    rsi_value = values['values'].get('rsi')
-                    if rsi_value:
+                    rsi_value = values.get('values', {}).get('rsi')
+                    if rsi_value is not None:
                         indicators_text += f"  ↳ Value: {rsi_value:.2f} (OB:70/OS:30)\n"
-                
+    
                 elif indicator == 'supertrend':
-                    direction = values['values'].get('direction')
+                    direction = values.get('values', {}).get('direction', "N/A")
                     indicators_text += f"  ↳ Trend: {direction}\n"
-                
+    
                 elif indicator == 'bollinger_bands':
-                    percent_b = values['values'].get('percent_b')
-                    if percent_b:
+                    percent_b = values.get('values', {}).get('percent_b')
+                    if percent_b is not None:
                         indicators_text += f"  ↳ %B: {percent_b:.2f}\n"
-        
+    
         # Format patterns section
         patterns_text = ""
-        
-        # First check if we have any patterns at all
-        has_patterns = False
-        for pattern_type, patterns in signals['patterns'].items():
-            if patterns:
-                has_patterns = True
-                break
-        
-        # Process candlestick patterns
-        if 'candlestick' in signals['patterns'] and signals['patterns']['candlestick']:
-            patterns_text += "📊 *Candlestick Patterns:*\n"
-            for pattern_name, pattern_data in signals['patterns']['candlestick'].items():
-                signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
-                strength_stars = "⭐" * pattern_data['strength']
-                patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}\n"
-        
-        # Process chart patterns
-        if 'chart' in signals['patterns'] and signals['patterns']['chart']:
-            patterns_text += "\n📈 *Chart Patterns:*\n"
-            for pattern_name, pattern_data in signals['patterns']['chart'].items():
-                signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
-                strength_stars = "⭐" * pattern_data['strength']
-                patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}\n"
-        
-        if not has_patterns:
+        has_patterns = any(patterns for pattern_type, patterns in signals.get('patterns', {}).items() if patterns)
+    
+        if has_patterns:
+            # Process candlestick patterns
+            if 'candlestick' in signals.get('patterns', {}):
+                patterns_text += "📊 *Candlestick Patterns:*\n"
+                for pattern_name, pattern_data in signals['patterns']['candlestick'].items():
+                    signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
+                    strength_stars = "⭐" * pattern_data['strength']
+                    patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}\n"
+    
+            # Process chart patterns
+            if 'chart' in signals.get('patterns', {}):
+                patterns_text += "\n📈 *Chart Patterns:*\n"
+                for pattern_name, pattern_data in signals['patterns']['chart'].items():
+                    signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
+                    strength_stars = "⭐" * pattern_data['strength']
+                    patterns_text += f"• {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}\n"
+        else:
             patterns_text = "• No significant patterns detected\n"
-        
+    
         # Format recommendation with more details
-        if signals['signal'] == 'BUY':
-            recommendation = f"Strong BUY recommendation based on {signals['buy_signals_count']} bullish signals vs {signals['sell_signals_count']} bearish signals."
-            
-            # Add stop loss recommendation if available
-            if 'atr' in signals['indicators']:
-                stop_loss = signals['indicators']['atr']['values']['buy_stop']
-                recommendation += f"\n\nSuggested stop loss: {stop_loss:.2f} (ATR-based)"
-                
-        else:  # SELL signal
-            recommendation = f"Strong SELL recommendation based on {signals['sell_signals_count']} bearish signals vs {signals['buy_signals_count']} bullish signals."
-            
-            # Add stop loss recommendation if available
-            if 'atr' in signals['indicators']:
-                stop_loss = signals['indicators']['atr']['values']['sell_stop']
-                recommendation += f"\n\nSuggested stop loss: {stop_loss:.2f} (ATR-based)"
-        
-        # Fill in the message template
+        if signals.get('signal') == 'BUY':
+            recommendation = f"Strong BUY recommendation based on {signals.get('buy_signals_count', 0)} bullish signals vs {signals.get('sell_signals_count', 0)} bearish signals."
+            stop_loss = signals.get('indicators', {}).get('atr', {}).get('values', {}).get('buy_stop')
+            if stop_loss:
+                recommendation += f"\n\nSuggested stop loss: ₹{stop_loss:.2f} (ATR-based)"
+        else:
+            recommendation = f"Strong SELL recommendation based on {signals.get('sell_signals_count', 0)} bearish signals vs {signals.get('buy_signals_count', 0)} bullish signals."
+            stop_loss = signals.get('indicators', {}).get('atr', {}).get('values', {}).get('sell_stop')
+            if stop_loss:
+                recommendation += f"\n\nSuggested stop loss: ₹{stop_loss:.2f} (ATR-based)"
+    
+        # Format the final message
         message = config.SIGNAL_MESSAGE_TEMPLATE.format(
-            stock_name=stock_name,
-            stock_symbol=stock_symbol,
-            current_price=signals['current_price'],
-            signal_type=signals['signal'],
-            timeframe=timeframe,
-            strength=signals['strength'],
-            indicators=indicators_text,
-            patterns=patterns_text,
-            recommendation=recommendation,
-            timestamp=signals.get('timestamp', datetime.datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            stock_name=escape_telegram_markdown(stock_name),
+            stock_symbol=escape_telegram_markdown(stock_symbol),
+            current_price=signals.get('current_price', "N/A"),
+            signal_type=escape_telegram_markdown(signals.get('signal', "N/A")),
+            timeframe=escape_telegram_markdown(timeframe or "N/A"),
+            strength=signals.get('strength', "N/A"),
+            indicators=escape_telegram_markdown(indicators_text or "N/A"),
+            patterns=escape_telegram_markdown(patterns_text or "N/A"),
+            recommendation=escape_telegram_markdown(recommendation or "N/A"),
+            timestamp=signals.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         )
-        
+    
         return message
