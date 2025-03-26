@@ -392,82 +392,81 @@ class TechnicalAnalysis:
                 multiplier=params['multiplier']
             )
             
-            # Get the actual column names from the supertrend result
+            # Print column names for debugging
             column_names = supertrend.columns.tolist()
+            logger.info(f"SuperTrend columns: {column_names}")
             
-            # Find the appropriate columns by pattern matching
-            supert_column = None
-            direction_column = None
-            
-            for col in column_names:
-                if col.startswith('SUPERT') and not col.endswith('.d'):
-                    supert_column = col
-                elif col.startswith('SUPERT') and col.endswith('.d'):
-                    direction_column = col
-            
-            if supert_column is None or direction_column is None:
-                # Fallback using known patterns in different pandas-ta versions
-                period = str(params['period'])
-                mult = str(params['multiplier'])
+            # Find the appropriate columns by positional reference (more reliable)
+            if len(column_names) >= 2:
+                # Typically, the first column is the SuperTrend value and the second is the direction
+                supert_column = column_names[0]
+                direction_column = column_names[1]
                 
-                # Try different naming patterns
-                possible_patterns = [
-                    f"SUPERT_{period}_{mult}",
-                    f"SUPERTd_{period}_{mult}",
-                    f"SUPERT_{period}_{float(mult):.1f}"
-                ]
+                logger.info(f"Using SuperTrend columns: {supert_column} and {direction_column}")
                 
-                for pattern in possible_patterns:
-                    if pattern in supertrend.columns:
-                        supert_column = pattern
-                        direction_column = f"{pattern}.d"
-                        break
-            
-            if supert_column is None or direction_column is None:
-                # If we still can't find the columns, log the available columns and raise an error
-                logger.error(f"SuperTrend columns not found. Available columns: {column_names}")
+                # Extract SuperTrend components using the determined column names
+                self.df['supertrend'] = supertrend[supert_column]
+                self.df['supertrend_direction'] = supertrend[direction_column]
                 
-                # Use a more robust approach - just assign the first two columns
-                # This assumes the first column is the SuperTrend value and the second is the direction
-                if len(column_names) >= 2:
-                    supert_column = column_names[0]
-                    direction_column = column_names[1]
+                # Generate signals
+                # SuperTrend direction: 1 is bullish (uptrend), -1 is bearish (downtrend)
+                # Note: The way signals are generated may depend on how direction is encoded in your version 
+                
+                # Check the actual values to determine convention
+                direction_values = supertrend[direction_column].unique()
+                logger.info(f"SuperTrend direction values: {direction_values}")
+                
+                # Try to determine the convention
+                if 1 in direction_values and -1 in direction_values:
+                    # Standard convention: 1 = bullish, -1 = bearish
+                    self.df['supertrend_buy_signal'] = ((self.df['supertrend_direction'].shift(1) == -1) & 
+                                                     (self.df['supertrend_direction'] == 1)).astype(int)
+                    self.df['supertrend_sell_signal'] = ((self.df['supertrend_direction'].shift(1) == 1) & 
+                                                      (self.df['supertrend_direction'] == -1)).astype(int)
+                    
+                    is_bullish = self.df['supertrend_direction'].iloc[-1] == 1
+                
+                elif True in direction_values and False in direction_values:
+                    # Alternative convention: True = bullish, False = bearish
+                    self.df['supertrend_buy_signal'] = ((self.df['supertrend_direction'].shift(1) == False) & 
+                                                     (self.df['supertrend_direction'] == True)).astype(int)
+                    self.df['supertrend_sell_signal'] = ((self.df['supertrend_direction'].shift(1) == True) & 
+                                                      (self.df['supertrend_direction'] == False)).astype(int)
+                    
+                    is_bullish = self.df['supertrend_direction'].iloc[-1] == True
+                
                 else:
-                    raise ValueError("Cannot determine SuperTrend column names")
-            
-            # Extract SuperTrend components using the determined column names
-            self.df['supertrend'] = supertrend[supert_column]
-            self.df['supertrend_direction'] = supertrend[direction_column]
-            
-            # Generate signals
-            self.df['supertrend_buy_signal'] = ((self.df['supertrend_direction'].shift(1) == -1) & 
-                                            (self.df['supertrend_direction'] == 1)).astype(int)
-            self.df['supertrend_sell_signal'] = ((self.df['supertrend_direction'].shift(1) == 1) & 
-                                             (self.df['supertrend_direction'] == -1)).astype(int)
-            
-            # Save to results
-            current_supertrend_signal = 0
-            if self.df['supertrend_buy_signal'].iloc[-1] == 1:
-                current_supertrend_signal = 1
-            elif self.df['supertrend_sell_signal'].iloc[-1] == 1:
-                current_supertrend_signal = -1
-            
-            self.indicators_result['supertrend'] = {
-                'signal': current_supertrend_signal,
-                'values': {
-                    'supertrend': round(self.df['supertrend'].iloc[-1], 2) if not pd.isna(self.df['supertrend'].iloc[-1]) else None,
-                    'direction': 'Bullish' if self.df['supertrend_direction'].iloc[-1] == 1 else 'Bearish'
-                }
-            }
-            
-            # Add to signals list
-            if current_supertrend_signal != 0:
-                self.signals.append({
-                    'indicator': 'Supertrend',
-                    'signal': 'BUY' if current_supertrend_signal == 1 else 'SELL',
-                    'strength': 4
-                })
+                    # If we can't determine the convention, assume standard
+                    logger.warning(f"Unknown SuperTrend direction convention: {direction_values}")
+                    self.df['supertrend_buy_signal'] = 0
+                    self.df['supertrend_sell_signal'] = 0
+                    is_bullish = self.df['close'].iloc[-1] > self.df['supertrend'].iloc[-1]
                 
+                # Save to results
+                current_supertrend_signal = 0
+                if self.df['supertrend_buy_signal'].iloc[-1] == 1:
+                    current_supertrend_signal = 1
+                elif self.df['supertrend_sell_signal'].iloc[-1] == 1:
+                    current_supertrend_signal = -1
+                
+                self.indicators_result['supertrend'] = {
+                    'signal': current_supertrend_signal,
+                    'values': {
+                        'supertrend': round(self.df['supertrend'].iloc[-1], 2) if not pd.isna(self.df['supertrend'].iloc[-1]) else None,
+                        'direction': 'Bullish' if is_bullish else 'Bearish'
+                    }
+                }
+                
+                # Add to signals list
+                if current_supertrend_signal != 0:
+                    self.signals.append({
+                        'indicator': 'Supertrend',
+                        'signal': 'BUY' if current_supertrend_signal == 1 else 'SELL',
+                        'strength': 4
+                    })
+            else:
+                raise ValueError(f"SuperTrend calculation returned insufficient columns: {column_names}")
+                    
         except Exception as e:
             logger.warning(f"Error calculating SuperTrend: {e}. Skipping this indicator.")
             # Return empty results to prevent further errors
