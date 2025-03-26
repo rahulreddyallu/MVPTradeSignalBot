@@ -122,13 +122,13 @@ ANALYSIS_FREQUENCY = 1  # Run every hour
 
 # Message Template with MarkdownV2 Safe Formatting
 SIGNAL_MESSAGE_TEMPLATE = """
-🔔 *TRADING SIGNAL ALERT* 🔔
+*TRADING SIGNAL ALERT* 
 
 *Stock:* {stock_name} ({stock_symbol})
 *Current Price:* ₹{current_price}
 *Signal Type:* {signal_type}
 *Timeframe:* {timeframe}
-*Strength:* {strength}\\/5  ⬅️ (Escaped `/`)
+*Strength:* {strength}\\/5  (Escaped `/`)
 
 *Technical Indicators:*
 {indicators}
