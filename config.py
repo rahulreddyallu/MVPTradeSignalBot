@@ -120,7 +120,7 @@ CHART_PATTERNS = {
 # How often to run the analysis (in hours)
 ANALYSIS_FREQUENCY = 1  # Run every hour
 
-# Message templates
+# Message Template with MarkdownV2 Safe Formatting
 SIGNAL_MESSAGE_TEMPLATE = """
 🔔 *TRADING SIGNAL ALERT* 🔔
 
@@ -128,7 +128,7 @@ SIGNAL_MESSAGE_TEMPLATE = """
 *Current Price:* ₹{current_price}
 *Signal Type:* {signal_type}
 *Timeframe:* {timeframe}
-*Strength:* {strength}/5
+*Strength:* {strength}\\/5  ⬅️ (Escaped `/`)
 
 *Technical Indicators:*
 {indicators}
@@ -141,5 +141,3 @@ SIGNAL_MESSAGE_TEMPLATE = """
 
 *Generated:* {timestamp}
 """
-
-# Date/Time last updated: 2025-03-24 17:40
