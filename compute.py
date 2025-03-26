@@ -1594,15 +1594,17 @@ class TradingSignalBot:
             logger.info(f"Sent {signals['signal']} signal for {stock_symbol} ({timeframe}) - {signals['buy_signals_count']} buy vs {signals['sell_signals_count']} sell signals")
         
         return signals
-
+    
     def escape_telegram_markdown(text):
         """Escape special characters for Telegram MarkdownV2 formatting."""
+        if not text:
+            return "N/A"
         special_chars = r'_*[]()~`>#+-=|{}.!'
-        return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text or "N/A")
+        return re.sub(f'([{re.escape(special_chars)}])', r'\\\1', text)
     
     def _format_signal_message(self, stock_name, stock_symbol, signals, timeframe):
         """Format the signal message for Telegram"""
-        
+    
         # Format indicators section
         indicators_text = ""
         for indicator, values in signals.get('indicators', {}).items():
@@ -1650,28 +1652,34 @@ class TradingSignalBot:
     
         # Format recommendation with more details
         if signals.get('signal') == 'BUY':
-            recommendation = f"Strong BUY recommendation based on {signals.get('buy_signals_count', 0)} bullish signals vs {signals.get('sell_signals_count', 0)} bearish signals."
+            recommendation = (
+                f"Strong BUY recommendation based on {signals.get('buy_signals_count', 0)} bullish signals "
+                f"vs {signals.get('sell_signals_count', 0)} bearish signals."
+            )
             stop_loss = signals.get('indicators', {}).get('atr', {}).get('values', {}).get('buy_stop')
             if stop_loss:
                 recommendation += f"\n\nSuggested stop loss: ₹{stop_loss:.2f} (ATR-based)"
         else:
-            recommendation = f"Strong SELL recommendation based on {signals.get('sell_signals_count', 0)} bearish signals vs {signals.get('buy_signals_count', 0)} bullish signals."
+            recommendation = (
+                f"Strong SELL recommendation based on {signals.get('sell_signals_count', 0)} bearish signals "
+                f"vs {signals.get('buy_signals_count', 0)} bullish signals."
+            )
             stop_loss = signals.get('indicators', {}).get('atr', {}).get('values', {}).get('sell_stop')
             if stop_loss:
                 recommendation += f"\n\nSuggested stop loss: ₹{stop_loss:.2f} (ATR-based)"
     
-        # Format the final message
+        # Escape text for Telegram Markdown
         message = config.SIGNAL_MESSAGE_TEMPLATE.format(
             stock_name=escape_telegram_markdown(stock_name),
             stock_symbol=escape_telegram_markdown(stock_symbol),
-            current_price=signals.get('current_price', "N/A"),
+            current_price=escape_telegram_markdown(f"₹{signals.get('current_price', 'N/A')}"),
             signal_type=escape_telegram_markdown(signals.get('signal', "N/A")),
             timeframe=escape_telegram_markdown(timeframe or "N/A"),
-            strength=signals.get('strength', "N/A"),
+            strength=escape_telegram_markdown(str(signals.get('strength', "N/A"))),
             indicators=escape_telegram_markdown(indicators_text or "N/A"),
             patterns=escape_telegram_markdown(patterns_text or "N/A"),
             recommendation=escape_telegram_markdown(recommendation or "N/A"),
-            timestamp=signals.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            timestamp=escape_telegram_markdown(signals.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         )
     
         return message
