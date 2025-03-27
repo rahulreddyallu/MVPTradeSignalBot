@@ -101,7 +101,7 @@ async def send_telegram_message(message, retry_attempts=5):
         delay = 1  # Initial delay in seconds
         for attempt in range(retry_attempts):
             try:
-                # Use MarkdownV2 formatting for the new clean message template
+                # Use MarkdownV2 for formatted messages
                 await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='MarkdownV2')
                 break
             except Exception as e:
@@ -325,8 +325,6 @@ async def analyze_and_generate_signals():
                 daily_report.append(f"\n{company_name} ({trading_symbol}): {overall_signal['signal']} (Strength: {overall_signal['strength']}/5)")
                 daily_report.append(f"{overall_signal['summary']}")
                 
-                # ----- BEGIN NEW MESSAGE FORMATTING IMPLEMENTATION -----
-                
                 # Format primary indicators for clean template
                 primary_indicators = []
 
@@ -404,13 +402,6 @@ async def analyze_and_generate_signals():
                         if (is_buy_signal and roc_value > 0 and trend == 'Bullish') or (not is_buy_signal and roc_value < 0 and trend == 'Bearish'):
                             primary_indicators.append(f"✅ ROC: {trend} ({roc_value:.2f})")
 
-                # OBV (On-Balance Volume)
-                if 'obv' in indicators_result:
-                    obv_data = indicators_result['obv']['values']
-                    rising = obv_data.get('rising')
-                    if (is_buy_signal and rising) or (not is_buy_signal and not rising):
-                        primary_indicators.append(f"✅ OBV: {'Rising' if rising else 'Falling'} Volume")
-
                 # ATR (Average True Range)
                 if 'atr' in indicators_result:
                     atr_data = indicators_result['atr']['values']
@@ -419,6 +410,13 @@ async def analyze_and_generate_signals():
                         # ATR itself doesn't have bull/bear bias, it's a volatility measure
                         volatility = "High" if atr_value > (data['Close'].iloc[-1] * 0.02) else "Normal" if atr_value > (data['Close'].iloc[-1] * 0.01) else "Low"
                         primary_indicators.append(f"✅ ATR: {atr_value:.2f} ({volatility} volatility)")
+
+                # OBV (On-Balance Volume)
+                if 'obv' in indicators_result:
+                    obv_data = indicators_result['obv']['values']
+                    rising = obv_data.get('rising')
+                    if (is_buy_signal and rising) or (not is_buy_signal and not rising):
+                        primary_indicators.append(f"✅ OBV: {'Rising' if rising else 'Falling'} Volume")
 
                 # VWAP
                 if 'vwap' in indicators_result:
@@ -501,8 +499,6 @@ async def analyze_and_generate_signals():
                     buy_sell_summary=escape_telegram_markdown(buy_sell_summary),
                     timestamp_short=escape_telegram_markdown(timestamp_short)
                 )
-                
-                # ----- END NEW MESSAGE FORMATTING IMPLEMENTATION -----
                 
                 # Send via Telegram
                 await send_telegram_message(message)
