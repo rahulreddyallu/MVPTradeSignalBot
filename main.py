@@ -564,7 +564,7 @@ def run_trading_signals():
         logger.error(traceback.format_exc())
         
         # Send error notification
-       try:
+    try:
         loop = asyncio.get_event_loop()
         # Escape the error message for MarkdownV2 format
         error_message = escape_telegram_markdown(f"""
