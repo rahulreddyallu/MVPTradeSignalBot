@@ -119,7 +119,8 @@ def send_startup_notification():
     """Send a startup notification via Telegram"""
     try:
         loop = asyncio.get_event_loop()
-        message = f"""
+        # Escape the entire startup message
+        message = escape_telegram_markdown(f"""
 🚀 NIFTY 200 Trading Signal Bot Started 🚀
 
 Version: 2.0.0
@@ -136,7 +137,7 @@ New Features:
 • Better risk management with ATR-based stop losses
 
 Bot is now actively monitoring for trading signals.
-        """
+        """)
         loop.run_until_complete(send_telegram_message(message))
         logger.info("Startup notification sent")
     except Exception as e:
@@ -533,7 +534,8 @@ async def analyze_and_generate_signals():
     
     # Send daily summary report via Telegram
     if successful_analyses > 0:
-        await send_telegram_message("\n".join(daily_report))
+        escaped_report = escape_telegram_markdown("\n".join(daily_report))
+        await send_telegram_message(escaped_report)
     
     # Log summary statistics
     logger.info(f"Analysis completed. Processed {len(STOCK_LIST)} symbols.")
@@ -562,18 +564,20 @@ def run_trading_signals():
         logger.error(traceback.format_exc())
         
         # Send error notification
-        try:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(send_telegram_message(f"""
-⚠️ ERROR: Trading Signal Bot Failure ⚠️
-
-Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-Error: {str(e)}
-
-Please check the logs for more details.
-            """))
-        except:
-            logger.error("Failed to send error notification")
+       try:
+        loop = asyncio.get_event_loop()
+        # Escape the error message for MarkdownV2 format
+        error_message = escape_telegram_markdown(f"""
+    ⚠️ ERROR: Trading Signal Bot Failure ⚠️
+    
+    Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    Error: {str(e)}
+    
+    Please check the logs for more details.
+        """)
+        loop.run_until_complete(send_telegram_message(error_message))
+    except:
+        logger.error("Failed to send error notification")
 
 def test_upstox_connection():
     """Test connection to Upstox API"""
@@ -597,7 +601,9 @@ def test_telegram_connection():
     
     try:
         loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(send_telegram_message("🔍 Test Message - NIFTY 200 Trading Signal Bot connection test successful!"))
+        # Escape the test message properly for MarkdownV2
+        test_message = escape_telegram_markdown("🔍 Test Message - NIFTY 200 Trading Signal Bot connection test successful!")
+        result = loop.run_until_complete(send_telegram_message(test_message))
         
         if result:
             logger.info("✅ Successfully sent test message to Telegram")
