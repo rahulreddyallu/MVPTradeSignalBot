@@ -488,7 +488,7 @@ async def analyze_and_generate_signals():
                 star_rating = "⭐" * signal_strength
 
                 # Format message using config template with escaping for Telegram MarkdownV2
-                message = SIGNAL_MESSAGE_TEMPLATE.format(
+                unescaped_message = SIGNAL_MESSAGE_TEMPLATE.format(
                     stock_name=escape_telegram_markdown(company_name),
                     stock_symbol=escape_telegram_markdown(trading_symbol),
                     current_price=escape_telegram_markdown(f"{data['Close'].iloc[-1]:.2f}"),
