@@ -325,22 +325,24 @@ ANALYSIS_FREQUENCY = 1  # Run every hour
 
 # Message Template with MarkdownV2 Safe Formatting
 SIGNAL_MESSAGE_TEMPLATE = """
-*TRADING SIGNAL ALERT* 
+*📊 TRADING SIGNAL \\| {stock_symbol} \\| {signal_type}* {'⭐' * signal_strength}
 
-*Stock:* {stock_name} ({stock_symbol})
-*Current Price:* ₹{current_price}
-*Signal Type:* {signal_type}
-*Timeframe:* {timeframe}
-*Strength:* {strength}\\/5  (Escaped `/`)
+*{stock_name}*
+Price: ₹{current_price} \\| Industry: {industry}
 
-*Technical Indicators:*
-{indicators}
+*PRIMARY INDICATORS:*
+{primary_indicators}
 
-*Patterns Detected:*
+*KEY PATTERNS:*
 {patterns}
 
-*Recommendation:*
-{recommendation}
+*RISK MANAGEMENT:*
+Stop Loss: ₹{stop_loss}
+Target: ₹{target_price}
+Risk:Reward = 1:2
 
-*Generated:* {timestamp}
+{trend_strength}
+{buy_sell_summary}
+
+Generated: {timestamp_short}
 """
