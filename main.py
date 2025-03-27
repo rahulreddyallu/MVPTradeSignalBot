@@ -484,26 +484,30 @@ async def analyze_and_generate_signals():
                # Adjust signal_strength to be in range 1-5
                signal_strength = max(1, min(5, overall_signal['strength']))
 
-               # Generate star rating string before formatting
-               star_rating = "⭐" * signal_strength
 
-               # Format message using config template with escaping for Telegram MarkdownV2
-               message = SIGNAL_MESSAGE_TEMPLATE.format(
-               stock_name=escape_telegram_markdown(company_name),
-               stock_symbol=escape_telegram_markdown(trading_symbol),
-               current_price=escape_telegram_markdown(f"{data['Close'].iloc[-1]:.2f}"),
-               industry=escape_telegram_markdown(industry),
-               signal_type=escape_telegram_markdown(overall_signal['signal']),
-               signal_strength=signal_strength,
-               star_rating=star_rating,  # Add this parameter for the stars
-               primary_indicators="\n".join(primary_indicators),
-               patterns="\n".join(patterns_text),
-               stop_loss=escape_telegram_markdown(f"{stop_loss:.2f}" if stop_loss else "N/A"),
-               target_price=escape_telegram_markdown(f"{target_price:.2f}" if target_price else "N/A"),
-               trend_strength=escape_telegram_markdown(aroon_value),
-               buy_sell_summary=escape_telegram_markdown(buy_sell_summary),
-               timestamp_short=escape_telegram_markdown(timestamp_short)
-               )
+                # Generate star rating string before formatting
+                star_rating = "⭐" * signal_strength
+                
+                # First format the template with unescaped values
+                unescaped_message = SIGNAL_MESSAGE_TEMPLATE.format(
+                    stock_name=company_name,
+                    stock_symbol=trading_symbol,
+                    current_price=f"{data['Close'].iloc[-1]:.2f}",
+                    industry=industry,
+                    signal_type=overall_signal['signal'],
+                    signal_strength=signal_strength,
+                    star_rating=star_rating,  # Add this parameter for stars
+                    primary_indicators="\n".join(primary_indicators),
+                    patterns="\n".join(patterns_text),
+                    stop_loss=f"{stop_loss:.2f}" if stop_loss else "N/A",
+                    target_price=f"{target_price:.2f}" if target_price else "N/A",
+                    trend_strength=aroon_value,
+                    buy_sell_summary=buy_sell_summary,
+                    timestamp_short=timestamp_short
+                )
+                
+                # Then escape the entire message for MarkdownV2
+                message = escape_telegram_markdown(unescaped_message)
                 
                 # Send via Telegram
                 await send_telegram_message(message)
