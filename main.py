@@ -325,202 +325,184 @@ async def analyze_and_generate_signals():
                 daily_report.append(f"\n{company_name} ({trading_symbol}): {overall_signal['signal']} (Strength: {overall_signal['strength']}/5)")
                 daily_report.append(f"{overall_signal['summary']}")
                 
-                # Format indicators text for message template
-                indicators_text = []
+                # ----- BEGIN NEW MESSAGE FORMATTING IMPLEMENTATION -----
                 
-                # 1. Moving Averages
+                # Format primary indicators for clean template
+                primary_indicators = []
+
+                # Check if this is a BUY or SELL signal to show appropriate indicators
+                is_buy_signal = overall_signal['signal'] == 'BUY'
+
+                # Moving Averages (EMA Crossover)
                 if 'moving_averages' in indicators_result:
-                    ma_data = indicators_result['moving_averages']['values']
-                    ema_short = ma_data['ema_short']
-                    ema_long = ma_data['ema_long']
-                    sma_mid = ma_data['sma_mid']
-                    sma_long = ma_data['sma_long']
-                    
-                    indicators_text.append(f"• Moving Averages:")
-                    indicators_text.append(f"  - EMA: Short {ema_short} | Long {ema_long}")
-                    if sma_mid:
-                        indicators_text.append(f"  - SMA: Mid {sma_mid} | Long {sma_long}")
-                
-                # 2. RSI
+                    ma_data = indicators_result['moving_averages']
+                    if (is_buy_signal and ma_data.get('signal') == 1) or (not is_buy_signal and ma_data.get('signal') == -1):
+                        ema_short = ma_data['values']['ema_short']
+                        ema_long = ma_data['values']['ema_long']
+                        primary_indicators.append(f"✅ EMA Crossover: {'Bullish' if is_buy_signal else 'Bearish'} ({ema_short:.2f} {('>' if is_buy_signal else '<')} {ema_long:.2f})")
+
+                # RSI
                 if 'rsi' in indicators_result:
                     rsi_data = indicators_result['rsi']['values']
-                    rsi_value = rsi_data['rsi']
-                    if rsi_value:
-                        indicators_text.append(f"• RSI: {rsi_value:.2f} (OB:{rsi_data['overbought_threshold']}/OS:{rsi_data['oversold_threshold']})")
-                
-                # 3. MACD
-                if 'macd' in indicators_result:
-                    macd_data = indicators_result['macd']['values']
-                    macd_line = macd_data['macd_line']
-                    signal_line = macd_data['signal_line']
-                    hist = macd_data['histogram']
-                    indicators_text.append(f"• MACD: {macd_line:.4f} | Signal: {signal_line:.4f} | Hist: {hist:.4f}")
-                
-                # 4. Supertrend
+                    rsi_value = rsi_data.get('rsi')
+                    if rsi_value is not None:
+                        if (is_buy_signal and (50 < rsi_value < 70 or rsi_value <= 30)) or (not is_buy_signal and (rsi_value >= 70 or rsi_value < 50)):
+                            rsi_status = "Strong momentum" if 50 < rsi_value < 70 else "Overbought" if rsi_value >= 70 else "Oversold" if rsi_value <= 30 else "Neutral"
+                            primary_indicators.append(f"✅ RSI: {rsi_value:.2f} ({rsi_status})")
+
+                # Supertrend
                 if 'supertrend' in indicators_result:
                     st_data = indicators_result['supertrend']['values']
-                    st_value = st_data.get('supertrend')
-                    direction = st_data['direction']
-                    indicators_text.append(f"• Supertrend: {direction}" + (f" | Value: {st_value:.2f}" if st_value else ""))
-                
-                # 5. Bollinger Bands
+                    if (is_buy_signal and st_data.get('direction') == 'Bullish') or (not is_buy_signal and st_data.get('direction') == 'Bearish'):
+                        primary_indicators.append(f"✅ Supertrend: {st_data.get('direction')}")
+
+                # MACD
+                if 'macd' in indicators_result:
+                    macd_data = indicators_result['macd']
+                    if (is_buy_signal and macd_data.get('signal') == 1) or (not is_buy_signal and macd_data.get('signal') == -1):
+                        status = "Positive & expanding" if is_buy_signal else "Negative & expanding"
+                        primary_indicators.append(f"✅ MACD: {status}")
+
+                # Bollinger Bands
                 if 'bollinger_bands' in indicators_result:
-                    bb_data = indicators_result['bollinger_bands']['values']
-                    middle = bb_data['middle']
-                    upper = bb_data['upper']
-                    lower = bb_data['lower']
-                    percent_b = bb_data.get('percent_b')
-                    bandwidth = bb_data.get('bandwidth')
-                    
-                    indicators_text.append(f"• Bollinger Bands:")
-                    indicators_text.append(f"  - Bands: Upper {upper:.2f} | Middle {middle:.2f} | Lower {lower:.2f}")
-                    if percent_b is not None:
-                        indicators_text.append(f"  - Position: %B {percent_b:.2f}" + (f" | Bandwidth: {bandwidth:.2f}" if bandwidth else ""))
-                
-                # 6. Stochastic
+                    bb_data = indicators_result['bollinger_bands']
+                    if (is_buy_signal and bb_data.get('signal') == 1) or (not is_buy_signal and bb_data.get('signal') == -1):
+                        percent_b = bb_data['values'].get('percent_b')
+                        position = "Oversold" if percent_b and percent_b < 0.2 else "Overbought" if percent_b and percent_b > 0.8 else ""
+                        if position:
+                            primary_indicators.append(f"✅ Bollinger: {position} ({percent_b:.2f})")
+
+                # Stochastic
                 if 'stochastic' in indicators_result:
-                    stoch_data = indicators_result['stochastic']['values']
-                    k_value = stoch_data.get('k')
-                    d_value = stoch_data.get('d')
-                    if k_value and d_value:
-                        indicators_text.append(f"• Stochastic: %K {k_value:.2f} | %D {d_value:.2f}")
-                
-                # 7. Parabolic SAR
+                    stoch_data = indicators_result['stochastic']
+                    if (is_buy_signal and stoch_data.get('signal') == 1) or (not is_buy_signal and stoch_data.get('signal') == -1):
+                        k_value = stoch_data['values'].get('k')
+                        d_value = stoch_data['values'].get('d')
+                        if k_value and d_value:
+                            primary_indicators.append(f"✅ Stochastic: Crossover ({k_value:.2f})")
+
+                # Parabolic SAR
                 if 'parabolic_sar' in indicators_result:
-                    psar_data = indicators_result['parabolic_sar']['values']
-                    sar_value = psar_data.get('sar')
-                    trend = psar_data['trend']
-                    if sar_value:
-                        indicators_text.append(f"• Parabolic SAR: {sar_value:.2f} | Trend: {trend}")
-                
-                # 8. Aroon
+                    psar_data = indicators_result['parabolic_sar']
+                    if (is_buy_signal and psar_data.get('signal') == 1) or (not is_buy_signal and psar_data.get('signal') == -1):
+                        primary_indicators.append(f"✅ Parabolic SAR: {psar_data['values']['trend']}")
+
+                # Aroon
                 if 'aroon' in indicators_result:
                     aroon_data = indicators_result['aroon']['values']
-                    aroon_up = aroon_data.get('aroon_up')
-                    aroon_down = aroon_data.get('aroon_down')
-                    strong_uptrend = aroon_data.get('strong_uptrend')
-                    strong_downtrend = aroon_data.get('strong_downtrend')
-                    
-                    if aroon_up is not None and aroon_down is not None:
-                        trend_str = "Strong Uptrend" if strong_uptrend else "Strong Downtrend" if strong_downtrend else "Neutral"
-                        indicators_text.append(f"• Aroon: Up {aroon_up:.2f} | Down {aroon_down:.2f} | {trend_str}")
-                
-                # 9. Rate of Change
+                    if is_buy_signal and aroon_data.get('strong_uptrend'):
+                        primary_indicators.append(f"✅ Aroon: Strong Uptrend ({aroon_data.get('aroon_up', 0):.2f})")
+                    elif not is_buy_signal and aroon_data.get('strong_downtrend'):
+                        primary_indicators.append(f"✅ Aroon: Strong Downtrend ({aroon_data.get('aroon_down', 0):.2f})")
+
+                # Rate of Change
                 if 'roc' in indicators_result:
                     roc_data = indicators_result['roc']['values']
                     roc_value = roc_data.get('roc')
                     trend = roc_data.get('trend')
                     if roc_value is not None:
-                        indicators_text.append(f"• Rate of Change: {roc_value:.2f} | Trend: {trend}")
-                
-                # 10. ATR
-                if 'atr' in indicators_result:
-                    atr_data = indicators_result['atr']['values']
-                    atr_value = atr_data.get('atr')
-                    buy_stop = atr_data.get('buy_stop')
-                    sell_stop = atr_data.get('sell_stop')
-                    
-                    indicators_text.append(f"• ATR: {atr_value:.2f}")
-                    if overall_signal['signal'] == 'BUY' and buy_stop:
-                        indicators_text.append(f"  - Suggested Stop Loss: {buy_stop:.2f}")
-                    elif overall_signal['signal'] == 'SELL' and sell_stop:
-                        indicators_text.append(f"  - Suggested Stop Loss: {sell_stop:.2f}")
-                
-                # 11. OBV
+                        if (is_buy_signal and roc_value > 0 and trend == 'Bullish') or (not is_buy_signal and roc_value < 0 and trend == 'Bearish'):
+                            primary_indicators.append(f"✅ ROC: {trend} ({roc_value:.2f})")
+
+                # OBV (On-Balance Volume)
                 if 'obv' in indicators_result:
                     obv_data = indicators_result['obv']['values']
                     rising = obv_data.get('rising')
-                    indicators_text.append(f"• On-Balance Volume: {'Rising' if rising else 'Falling'}")
-                
-                # 12. VWAP
+                    if (is_buy_signal and rising) or (not is_buy_signal and not rising):
+                        primary_indicators.append(f"✅ OBV: {'Rising' if rising else 'Falling'} Volume")
+
+                # ATR (Average True Range)
+                if 'atr' in indicators_result:
+                    atr_data = indicators_result['atr']['values']
+                    atr_value = atr_data.get('atr')
+                    if atr_value:
+                        # ATR itself doesn't have bull/bear bias, it's a volatility measure
+                        volatility = "High" if atr_value > (data['Close'].iloc[-1] * 0.02) else "Normal" if atr_value > (data['Close'].iloc[-1] * 0.01) else "Low"
+                        primary_indicators.append(f"✅ ATR: {atr_value:.2f} ({volatility} volatility)")
+
+                # VWAP
                 if 'vwap' in indicators_result:
                     vwap_data = indicators_result['vwap']['values']
-                    vwap_value = vwap_data.get('vwap')
                     price_to_vwap = vwap_data.get('price_to_vwap')
-                    if vwap_value:
-                        position = "Above VWAP" if price_to_vwap > 1 else "Below VWAP"
-                        indicators_text.append(f"• VWAP: {vwap_value:.2f} | Price: {position} ({price_to_vwap:.2f}x)")
-                
-                # Format patterns text using detected patterns
-                patterns_text = []
-                
-                # Check if we have any patterns at all
-                has_patterns = bool(patterns_result['candlestick'] or patterns_result['chart'])
-                
-               # Add candlestick patterns - removed markdown formatting that was causing issues
-                if patterns_result['candlestick']:
-                    patterns_text.append("• 📊 Candlestick Patterns:")
-                    for pattern_name, pattern_data in patterns_result['candlestick'].items():
-                        signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
-                        strength_stars = "⭐" * pattern_data['strength']  # Visual indication of strength
-                        patterns_text.append(f"  • {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}")
-                
-                # Add chart patterns - removed markdown formatting that was causing issues
-                if patterns_result['chart']:
-                    patterns_text.append("\n• 📈 Chart Patterns:")
-                    for pattern_name, pattern_data in patterns_result['chart'].items():
-                        signal_type = "🟢 BUY" if pattern_data['signal'] == 1 else "🔴 SELL"
-                        strength_stars = "⭐" * pattern_data['strength']  # Visual indication of strength
-                        patterns_text.append(f"  • {pattern_name.replace('_', ' ').title()}: {signal_type} {strength_stars}")
+                    if price_to_vwap:
+                        position = price_to_vwap > 1
+                        if (is_buy_signal and position) or (not is_buy_signal and not position):
+                            status = "Above VWAP" if position else "Below VWAP"
+                            primary_indicators.append(f"✅ VWAP: {status} ({price_to_vwap:.2f}x)")
 
-                # If no patterns detected
-                if not has_patterns:
-                    patterns_text = ["No specific chart patterns detected"]
-                
-                # Generate recommendation based on overall signal
-                if overall_signal['signal'] == 'BUY':
-                    recommendation = f"Consider LONG position based on {buy_signals_count} bullish signals vs {sell_signals_count} bearish signals. {overall_signal['summary']}."
-                    if 'atr' in indicators_result:
+                # Format patterns for clean template
+                patterns_text = []
+
+                # Add chart patterns with checkmarks
+                for pattern_name, pattern_data in patterns_result.get('chart', {}).items():
+                    if (is_buy_signal and pattern_data.get('signal') == 1) or (not is_buy_signal and pattern_data.get('signal') == -1):
+                        pattern_name_formatted = pattern_name.replace('_', ' ').title()
+                        patterns_text.append(f"✅ {pattern_name_formatted}")
+
+                # Add candlestick patterns with checkmarks
+                for pattern_name, pattern_data in patterns_result.get('candlestick', {}).items():
+                    if (is_buy_signal and pattern_data.get('signal') == 1) or (not is_buy_signal and pattern_data.get('signal') == -1):
+                        pattern_name_formatted = pattern_name.replace('_', ' ').title()
+                        patterns_text.append(f"✅ {pattern_name_formatted} (candlestick)")
+
+                # If no patterns found
+                if not patterns_text:
+                    patterns_text = ["No significant patterns detected"]
+
+                # Get risk management values
+                stop_loss = None
+                target_price = None
+                if 'atr' in indicators_result:
+                    if is_buy_signal:
                         stop_loss = indicators_result['atr']['values'].get('buy_stop')
                         if stop_loss:
                             target_price = data['Close'].iloc[-1] + (data['Close'].iloc[-1] - stop_loss) * 2  # 2:1 reward-to-risk ratio
-                            recommendation += f"\n\nSuggested stop loss: {stop_loss:.2f}"
-                            recommendation += f"\nPotential target: {target_price:.2f} (2:1 reward-to-risk)"
-                elif overall_signal['signal'] == 'SELL':
-                    recommendation = f"Consider SHORT position based on {sell_signals_count} bearish signals vs {buy_signals_count} bullish signals. {overall_signal['summary']}."
-                    if 'atr' in indicators_result:
+                    else:
                         stop_loss = indicators_result['atr']['values'].get('sell_stop')
                         if stop_loss:
                             target_price = data['Close'].iloc[-1] - (stop_loss - data['Close'].iloc[-1]) * 2  # 2:1 reward-to-risk ratio
-                            recommendation += f"\n\nSuggested stop loss: {stop_loss:.2f}"
-                            recommendation += f"\nPotential target: {target_price:.2f} (2:1 reward-to-risk)"
-                else:
-                    recommendation = "No clear signal. Consider staying out of the market."
-                
-                # Format message using template with company name and industry
-                message = """
-TRADING SIGNAL ALERT
 
-Stock: {stock_name} ({stock_symbol})
-Industry: {industry}
-Current Price: ₹{current_price}
-Signal Type: {signal_type}
-Timeframe: {timeframe}
-Strength: {strength}/5
+                # Aroon Trend Strength
+                aroon_value = "N/A"
+                if 'aroon' in indicators_result:
+                    aroon_data = indicators_result['aroon']['values']
+                    if is_buy_signal:
+                        aroon_up = aroon_data.get('aroon_up', 0)
+                        strength_desc = "Very Strong" if aroon_up > 80 else "Strong" if aroon_up > 70 else "Moderate" if aroon_up > 50 else "Weak"
+                        aroon_value = f"{aroon_up:.2f} ({strength_desc})"
+                    else:
+                        aroon_down = aroon_data.get('aroon_down', 0)
+                        strength_desc = "Very Strong" if aroon_down > 80 else "Strong" if aroon_down > 70 else "Moderate" if aroon_down > 50 else "Weak"
+                        aroon_value = f"{aroon_down:.2f} ({strength_desc})"
 
-Technical Indicators:
-{indicators}
+                # Buy/Sell Summary
+                total_signals = buy_signals_count + sell_signals_count
+                buy_sell_summary = f"{buy_signals_count}/{total_signals} BULLISH SIGNALS | {sell_signals_count}/{total_signals} BEARISH SIGNALS"
 
-Patterns Detected:
-{patterns}
+                # Format timestamp
+                timestamp_short = datetime.datetime.now().strftime("%b-%d %H:%M")
 
-Recommendation:
-{recommendation}
+                # Adjust signal_strength to be in range 1-5
+                signal_strength = max(1, min(5, overall_signal['strength']))
 
-Generated: {timestamp}
-""".format(
-                    stock_name=company_name,
-                    stock_symbol=trading_symbol,
-                    industry=industry,
-                    current_price=f"{data['Close'].iloc[-1]:.2f}",
-                    signal_type=overall_signal['signal'],
-                    timeframe="Daily",
-                    strength=overall_signal['strength'],
-                    indicators="\n".join(indicators_text),
+                # Format message using config template with escaping for Telegram MarkdownV2
+                message = SIGNAL_MESSAGE_TEMPLATE.format(
+                    stock_name=escape_telegram_markdown(company_name),
+                    stock_symbol=escape_telegram_markdown(trading_symbol),
+                    current_price=escape_telegram_markdown(f"{data['Close'].iloc[-1]:.2f}"),
+                    industry=escape_telegram_markdown(industry),
+                    signal_type=escape_telegram_markdown(overall_signal['signal']),
+                    signal_strength=signal_strength,
+                    primary_indicators="\n".join(primary_indicators),
                     patterns="\n".join(patterns_text),
-                    recommendation=recommendation,
-                    timestamp=signal_results.get('timestamp', current_date_str)
+                    stop_loss=escape_telegram_markdown(f"{stop_loss:.2f}" if stop_loss else "N/A"),
+                    target_price=escape_telegram_markdown(f"{target_price:.2f}" if target_price else "N/A"),
+                    trend_strength=escape_telegram_markdown(aroon_value),
+                    buy_sell_summary=escape_telegram_markdown(buy_sell_summary),
+                    timestamp_short=escape_telegram_markdown(timestamp_short)
                 )
+                
+                # ----- END NEW MESSAGE FORMATTING IMPLEMENTATION -----
                 
                 # Send via Telegram
                 await send_telegram_message(message)
