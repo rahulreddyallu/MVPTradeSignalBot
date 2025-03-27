@@ -323,12 +323,12 @@ CHART_PATTERNS = {
 # How often to run the analysis (in hours)
 ANALYSIS_FREQUENCY = 1  # Run every hour
 
-# Message Template with MarkdownV2 Safe Formatting
+# Message Template with raw characters (no escaping)
 SIGNAL_MESSAGE_TEMPLATE = """
-*📊 TRADING SIGNAL \\| {stock_symbol} \\| {signal_type}* {signal_strength}
+*📊 TRADING SIGNAL | {stock_symbol} | {signal_type}* {star_rating}
 
 *{stock_name}*
-Price: ₹{current_price} \\| Industry: {industry}
+Price: ₹{current_price} | Industry: {industry}
 
 *PRIMARY INDICATORS:*
 {primary_indicators}
