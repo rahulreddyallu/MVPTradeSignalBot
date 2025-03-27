@@ -325,7 +325,7 @@ ANALYSIS_FREQUENCY = 1  # Run every hour
 
 # Message Template with MarkdownV2 Safe Formatting
 SIGNAL_MESSAGE_TEMPLATE = """
-*📊 TRADING SIGNAL \\| {stock_symbol} \\| {signal_type}* {'⭐' * signal_strength}
+*📊 TRADING SIGNAL \\| {stock_symbol} \\| {signal_type}* {signal_strength}
 
 *{stock_name}*
 Price: ₹{current_price} \\| Industry: {industry}
