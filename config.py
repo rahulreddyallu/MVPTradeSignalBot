@@ -14,7 +14,7 @@ TELEGRAM_BOT_TOKEN = "7209852741:AAEf-_f6TeZK1-_R55yq365iU_54rk95y-c"
 TELEGRAM_CHAT_ID = "936205208"
 ENABLE_TELEGRAM_ALERTS = True
 
-HISTORICAL_DAYS = 150
+HISTORICAL_DAYS = 365
 
 # Stock Universe
 # List of NIFTY 200 stocks to analyze (instrument IDs from Upstox)
@@ -230,8 +230,8 @@ INTERVALS = {
     "short_term": "1D",    # Daily for short-term analysis (3-6 months)
     "long_term": "1W"      # Weekly for long-term analysis (>1 year)
 }
-SHORT_TERM_LOOKBACK = 60  # ~6 months in trading days
-LONG_TERM_LOOKBACK = 180   # 1 year
+SHORT_TERM_LOOKBACK = 180  # ~6 months in trading days
+LONG_TERM_LOOKBACK = 365   # 1 year
 
 # Technical Indicator Parameters
 INDICATORS = {
