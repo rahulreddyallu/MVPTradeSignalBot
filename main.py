@@ -143,7 +143,7 @@ Bot is now actively monitoring for trading signals.
     except Exception as e:
         logger.error(f"Failed to send startup notification: {str(e)}")
 
-def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="day"):
+def fetch_ohlcv_data(market_api, symbol, start_date, end_date, interval="30minute"):
     """
     Fetch historical OHLC data for a given symbol using the Upstox API.
     """
