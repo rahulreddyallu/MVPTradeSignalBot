@@ -230,8 +230,8 @@ INTERVALS = {
     "short_term": "1D",    # Daily for short-term analysis (3-6 months)
     "long_term": "1W"      # Weekly for long-term analysis (>1 year)
 }
-SHORT_TERM_LOOKBACK = 180  # ~6 months in trading days
-LONG_TERM_LOOKBACK = 365   # 1 year
+SHORT_TERM_LOOKBACK = 60  # ~6 months in trading days
+LONG_TERM_LOOKBACK = 180   # 1 year
 
 # Technical Indicator Parameters
 INDICATORS = {
