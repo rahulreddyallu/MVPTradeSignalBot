@@ -1404,12 +1404,35 @@ class BacktestRunner:
     
     def initialize_upstox(self):
         """Initialize Upstox client for data access"""
-        self.upstox_client = UpstoxClient()
-        if not self.upstox_client.authenticate():
-            logger.error("Failed to authenticate with Upstox")
+        try:
+            # Create the Upstox client instance
+            self.upstox_client = UpstoxClient()
+            
+            # Check if we have a static access token in config
+            if hasattr(config, 'UPSTOX_ACCESS_TOKEN'):
+                # Different possible attribute/method names for setting the token
+                if hasattr(self.upstox_client, 'set_access_token'):
+                    self.upstox_client.set_access_token(config.UPSTOX_ACCESS_TOKEN)
+                elif hasattr(self.upstox_client, 'set_token'):
+                    self.upstox_client.set_token(config.UPSTOX_ACCESS_TOKEN)
+                elif hasattr(self.upstox_client, 'access_token'):
+                    self.upstox_client.access_token = config.UPSTOX_ACCESS_TOKEN
+                elif hasattr(self.upstox_client, 'token'):
+                    self.upstox_client.token = config.UPSTOX_ACCESS_TOKEN
+                else:
+                    # If none of the above work, try this fallback approach
+                    # which assumes the client has an auth_token attribute
+                    self.upstox_client.auth_token = config.UPSTOX_ACCESS_TOKEN
+                    
+                logger.info("Upstox client initialized with static access token")
+                return True
+            else:
+                logger.error("UPSTOX_ACCESS_TOKEN not found in config")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to initialize Upstox client: {str(e)}")
             return False
-        return True
-    
+        
     def get_benchmark_data(self, benchmark='NSE_INDEX|Nifty 50', start_date=None, end_date=None):
         """Get benchmark data for comparison"""
         if self.upstox_client is None and not self.initialize_upstox():
