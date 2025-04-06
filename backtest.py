@@ -18,6 +18,7 @@ import traceback
 from tqdm import tqdm
 import pathlib
 from copy import deepcopy
+import itertools  # For groupby functionality in walk-forward testing
 
 # Add current directory to path to ensure imports work
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -27,6 +28,7 @@ from compute import TechnicalAnalysis, UpstoxClient
 import config
 
 # Setup logging
+os.makedirs('logs', exist_ok=True)  # Create logs directory if it doesn't exist
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -1438,500 +1440,501 @@ class BacktestRunner:
             return None
     
     def fetch_data_for_symbols(self, symbols, start_date=None, end_date=None, interval='day'):
-    """Fetch historical data for multiple symbols"""
-    if self.upstox_client is None and not self.initialize_upstox():
-        logger.error("Failed to initialize Upstox client")
-        return {}
-    
-    if start_date is None:
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
-    if end_date is None:
-        end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+        """Fetch historical data for multiple symbols"""
+        if self.upstox_client is None and not self.initialize_upstox():
+            logger.error("Failed to initialize Upstox client")
+            return {}
         
-    data_dict = {}
-    
-    for symbol in tqdm(symbols, desc="Fetching Data"):
-        try:
-            df = self.upstox_client.get_historical_data(
-                symbol, interval, start_date, end_date
-            )
+        if start_date is None:
+            start_date = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
+        if end_date is None:
+            end_date = datetime.datetime.now().strftime('%Y-%m-%d')
             
-            if df is not None and len(df) >= 100:  # Need at least 100 data points
-                data_dict[symbol] = df
-                logger.info(f"Successfully fetched {len(df)} data points for {symbol}")
-            else:
-                logger.warning(f"Insufficient data for {symbol}, skipping")
+        data_dict = {}
         
-        except Exception as e:
-            logger.error(f"Error fetching data for {symbol}: {str(e)}")
-            continue
-    
-      logger.info(f"Successfully fetched data for {len(data_dict)}/{len(symbols)} symbols")
-      return data_dict
-    def run_single_backtest(self, symbol, start_date=None, end_date=None, 
-                       initial_capital=100000, commission=0.0015, plot=True):
-    """
-    Run backtest on a single symbol
-    
-    Args:
-        symbol: Stock symbol to backtest
-        start_date: Start date for backtest (YYYY-MM-DD)
-        end_date: End date for backtest (YYYY-MM-DD)
-        initial_capital: Initial capital amount
-        commission: Commission rate (e.g., 0.0015 for 0.15%)
-        plot: Whether to generate and save plots
-        
-    Returns:
-        Dict with backtest results
-    """
-    # Initialize data if needed
-    if self.upstox_client is None and not self.initialize_upstox():
-        logger.error("Failed to initialize Upstox client")
-        return None
-    
-    logger.info(f"Running backtest for {symbol}")
-    
-    # Get stock information if available
-    stock_name = symbol
-    industry = "Unknown"
-    
-    # Check if we have stock info in config
-    if "|" in symbol:
-        isin = symbol.split("|")[1]
-        if hasattr(config, 'STOCK_INFO') and isin in config.STOCK_INFO:
-            stock_info = config.STOCK_INFO[isin]
-            stock_name = stock_info.get('name', symbol)
-            industry = stock_info.get('industry', "Unknown")
-    
-    # Fetch historical data
-    df = self.upstox_client.get_historical_data(
-        symbol, 'day', start_date, end_date
-    )
-    
-    if df is None or len(df) < 100:
-        logger.error(f"Insufficient data for {symbol}, cannot run backtest")
-        return None
-    
-    # Create output directory for this symbol
-    symbol_safe = symbol.replace('|', '_').replace(' ', '_')
-    output_dir = os.path.join(self.results_dir, symbol_safe)
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Initialize and run backtest engine
-    engine = BacktestEngine(initial_capital=initial_capital, commission=commission)
-    results = engine.run_backtest(df, symbol, name=stock_name, industry=industry)
-    
-    if results is None:
-        logger.error(f"Backtest failed for {symbol}")
-        return None
-    
-    # Save results to JSON
-    self._save_results(results, os.path.join(output_dir, 'backtest_results.json'))
-    
-    if plot:
-        try:
-            # Get benchmark data if possible
-            benchmark_df = self.get_benchmark_data()
-            
-            # Plot and save equity curve
-            fig = engine.plot_equity_curve(f"Equity Curve: {stock_name}", benchmark_df)
-            if fig:
-                fig.savefig(os.path.join(output_dir, 'equity_curve.png'))
-                plt.close(fig)
-            
-            # Plot and save monthly returns
-            fig = engine.plot_monthly_returns()
-            if fig:
-                fig.savefig(os.path.join(output_dir, 'monthly_returns.png'))
-                plt.close(fig)
-            
-            # Plot and save drawdown chart
-            fig = engine.plot_drawdown_chart()
-            if fig:
-                fig.savefig(os.path.join(output_dir, 'drawdown.png'))
-                plt.close(fig)
+        for symbol in tqdm(symbols, desc="Fetching Data"):
+            try:
+                df = self.upstox_client.get_historical_data(
+                    symbol, interval, start_date, end_date
+                )
                 
-        except Exception as e:
-            logger.error(f"Error generating plots: {str(e)}")
-    
-    return results
-
-def run_portfolio_backtest(self, symbols=None, start_date=None, end_date=None, 
-                          initial_capital=1000000, max_positions=10, rebalance_freq='monthly',
-                          allocation_method='equal', commission=0.0015, plot=True):
-    """
-    Run portfolio backtest on multiple symbols
-    
-    Args:
-        symbols: List of symbols to include in portfolio (defaults to config.STOCK_LIST)
-        start_date: Start date (YYYY-MM-DD)
-        end_date: End date (YYYY-MM-DD)
-        initial_capital: Initial portfolio capital
-        max_positions: Maximum number of simultaneous positions
-        rebalance_freq: Rebalancing frequency ('daily', 'weekly', 'monthly')
-        allocation_method: How to allocate capital ('equal', 'risk_parity')
-        commission: Commission rate
-        plot: Whether to generate and save plots
+                if df is not None and len(df) >= 100:  # Need at least 100 data points
+                    data_dict[symbol] = df
+                    logger.info(f"Successfully fetched {len(df)} data points for {symbol}")
+                else:
+                    logger.warning(f"Insufficient data for {symbol}, skipping")
+            except Exception as e:
+                logger.error(f"Error fetching data for {symbol}: {str(e)}")
+                continue
         
-    Returns:
-        Dict with portfolio backtest results
-    """
-    # Use default symbols list if none provided
-    if symbols is None:
-        if hasattr(config, 'STOCK_LIST'):
-            symbols = config.STOCK_LIST[:20]  # Limit to first 20 by default
-        else:
-            logger.error("No symbols list provided and no default list found in config")
+        logger.info(f"Successfully fetched data for {len(data_dict)}/{len(symbols)} symbols")
+        return data_dict
+    
+        def run_single_backtest(self, symbol, start_date=None, end_date=None, 
+                           initial_capital=100000, commission=0.0015, plot=True):
+        """
+        Run backtest on a single symbol
+        
+        Args:
+            symbol: Stock symbol to backtest
+            start_date: Start date for backtest (YYYY-MM-DD)
+            end_date: End date for backtest (YYYY-MM-DD)
+            initial_capital: Initial capital amount
+            commission: Commission rate (e.g., 0.0015 for 0.15%)
+            plot: Whether to generate and save plots
+            
+        Returns:
+            Dict with backtest results
+        """
+        # Initialize data if needed
+        if self.upstox_client is None and not self.initialize_upstox():
+            logger.error("Failed to initialize Upstox client")
             return None
-    
-    # Initialize data if needed
-    if self.upstox_client is None and not self.initialize_upstox():
-        logger.error("Failed to initialize Upstox client")
-        return None
-    
-    logger.info(f"Running portfolio backtest with {len(symbols)} symbols")
-    
-    # Fetch data for all symbols
-    data_dict = self.fetch_data_for_symbols(symbols, start_date, end_date)
-    
-    if not data_dict:
-        logger.error("No data fetched, cannot run portfolio backtest")
-        return None
         
-    # Create output directory for portfolio results
-    output_dir = os.path.join(self.results_dir, 'portfolio')
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Initialize and run portfolio backtester
-    backtester = PortfolioBacktester(initial_capital=initial_capital, commission=commission)
-    results = backtester.run_portfolio_backtest(
-        data_dict, 
-        start_date=start_date,
-        end_date=end_date,
-        rebalance_freq=rebalance_freq,
-        max_positions=max_positions,
-        allocation_method=allocation_method
-    )
-    
-    if results is None:
-        logger.error("Portfolio backtest failed")
-        return None
-    
-    # Save results to JSON
-    self._save_results(results, os.path.join(output_dir, 'portfolio_results.json'))
-    
-    if plot:
-        try:
-            # Get benchmark data if possible
-            benchmark_df = self.get_benchmark_data()
-            
-            # Plot and save equity curve
-            fig = backtester.plot_equity_curve(benchmark_df, 'Portfolio Performance')
-            if fig:
-                fig.savefig(os.path.join(output_dir, 'portfolio_equity_curve.png'))
-                plt.close(fig)
-            
-            # Plot and save allocations
-            fig = backtester.plot_allocations()
-            if fig:
-                fig.savefig(os.path.join(output_dir, 'portfolio_allocations.png'))
-                plt.close(fig)
-                
-        except Exception as e:
-            logger.error(f"Error generating portfolio plots: {str(e)}")
-    
-    return results
-
-def run_walk_forward_test(self, symbol, in_sample_days=120, out_sample_days=30, 
-                         start_date=None, end_date=None, initial_capital=100000, 
-                         commission=0.0015, plot=True):
-    """
-    Run walk-forward test on a symbol
-    
-    Args:
-        symbol: Symbol to test
-        in_sample_days: Number of days for in-sample period
-        out_sample_days: Number of days for out-of-sample period
-        start_date: Start date (YYYY-MM-DD)
-        end_date: End date (YYYY-MM-DD)
-        initial_capital: Initial capital
-        commission: Commission rate
-        plot: Whether to generate plots
+        logger.info(f"Running backtest for {symbol}")
         
-    Returns:
-        Dict with walk-forward test results
-    """
-    # Initialize data if needed
-    if self.upstox_client is None and not self.initialize_upstox():
-        logger.error("Failed to initialize Upstox client")
-        return None
-    
-    logger.info(f"Running walk-forward test for {symbol}")
-    
-    # Get stock information if available
-    stock_name = symbol
-    
-    # Check if we have stock info in config
-    if "|" in symbol:
-        isin = symbol.split("|")[1]
-        if hasattr(config, 'STOCK_INFO') and isin in config.STOCK_INFO:
-            stock_info = config.STOCK_INFO[isin]
-            stock_name = stock_info.get('name', symbol)
-    
-    # Ensure we have enough data for walk-forward testing
-    if start_date is None:
-        # Need extra history for walk-forward testing
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=365*2)).strftime('%Y-%m-%d')
+        # Get stock information if available
+        stock_name = symbol
+        industry = "Unknown"
         
-    if end_date is None:
-        end_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    
-    # Fetch historical data
-    df = self.upstox_client.get_historical_data(
-        symbol, 'day', start_date, end_date
-    )
-    
-    if df is None or len(df) < (in_sample_days + out_sample_days * 2):
-        logger.error(f"Insufficient data for {symbol}, cannot run walk-forward test")
-        return None
-    
-    # Create output directory for this symbol
-    symbol_safe = symbol.replace('|', '_').replace(' ', '_')
-    output_dir = os.path.join(self.results_dir, 'walk_forward', symbol_safe)
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Create walk-forward periods
-    periods = []
-    total_days = len(df)
-    max_periods = (total_days - in_sample_days) // out_sample_days
-    
-    if max_periods < 1:
-        logger.error(f"Not enough data for walk-forward testing of {symbol}")
-        return None
+        # Check if we have stock info in config
+        if "|" in symbol:
+            isin = symbol.split("|")[1]
+            if hasattr(config, 'STOCK_INFO') and isin in config.STOCK_INFO:
+                stock_info = config.STOCK_INFO[isin]
+                stock_name = stock_info.get('name', symbol)
+                industry = stock_info.get('industry', "Unknown")
         
-    logger.info(f"Creating {max_periods} walk-forward periods")
-    
-    for i in range(max_periods):
-        in_sample_start = i * out_sample_days
-        in_sample_end = in_sample_start + in_sample_days
-        out_sample_start = in_sample_end
-        out_sample_end = min(out_sample_start + out_sample_days, total_days)
-        
-        if out_sample_end - out_sample_start < out_sample_days // 2:
-            # Skip if out-sample period is too short
-            continue
-            
-        periods.append({
-            'in_sample': {
-                'start': in_sample_start,
-                'end': in_sample_end,
-                'data': df.iloc[in_sample_start:in_sample_end]
-            },
-            'out_sample': {
-                'start': out_sample_start,
-                'end': out_sample_end,
-                'data': df.iloc[out_sample_start:out_sample_end]
-            }
-        })
-        
-    logger.info(f"Created {len(periods)} valid walk-forward periods")
-    
-    # Run backtests for each period
-    period_results = []
-    
-    for i, period in enumerate(periods):
-        logger.info(f"Testing period {i+1}/{len(periods)}")
-        
-        # Use in-sample data for parameter optimization (for future enhancement)
-        # For now, we'll just use default parameters
-        
-        # Run backtest on out-of-sample data
-        engine = BacktestEngine(initial_capital=initial_capital, commission=commission)
-        results = engine.run_backtest(
-            period['out_sample']['data'], 
-            symbol, 
-            name=f"{stock_name} - Period {i+1}"
+        # Fetch historical data
+        df = self.upstox_client.get_historical_data(
+            symbol, 'day', start_date, end_date
         )
         
-        if results is not None:
-            period_results.append({
-                'period': i + 1,
-                'in_sample_start': period['in_sample']['data'].index[0],
-                'in_sample_end': period['in_sample']['data'].index[-1],
-                'out_sample_start': period['out_sample']['data'].index[0],
-                'out_sample_end': period['out_sample']['data'].index[-1],
-                'metrics': results['metrics'],
-                'equity_curve': results['equity_curve']
-            })
-    
-    if not period_results:
-        logger.error(f"No valid results from walk-forward test for {symbol}")
-        return None
-        
-    # Calculate aggregated metrics
-    wf_metrics = self._calculate_walk_forward_metrics(period_results)
-    
-    # Combine all results
-    walk_forward_results = {
-        'symbol': symbol,
-        'name': stock_name,
-        'in_sample_days': in_sample_days,
-        'out_sample_days': out_sample_days,
-        'periods': period_results,
-        'metrics': wf_metrics
-    }
-    
-    # Save results
-    self._save_results(walk_forward_results, os.path.join(output_dir, 'walk_forward_results.json'))
-    
-    if plot:
-        try:
-            # Plot period returns
-            self._plot_walk_forward_returns(period_results, symbol, output_dir)
-            
-            # Plot metrics consistency
-            for metric in ['total_return', 'win_rate', 'profit_factor']:
-                self._plot_walk_forward_metric(period_results, metric, symbol, output_dir)
-            
-        except Exception as e:
-            logger.error(f"Error generating walk-forward plots: {str(e)}")
-            
-    return walk_forward_results
-
-def _calculate_walk_forward_metrics(self, period_results):
-    """Calculate aggregated metrics from walk-forward periods"""
-    if not period_results:
-        return {}
-        
-    # Extract metrics from all periods
-    returns = [p['metrics']['total_return'] for p in period_results]
-    win_rates = [p['metrics']['win_rate'] for p in period_results]
-    profit_factors = [p['metrics'].get('profit_factor', 0) for p in period_results]
-    
-    # Calculate statistics
-    metrics = {
-        'avg_return': np.mean(returns),
-        'median_return': np.median(returns),
-        'return_std': np.std(returns),
-        'min_return': min(returns),
-        'max_return': max(returns),
-        'avg_win_rate': np.mean(win_rates),
-        'avg_profit_factor': np.mean([pf for pf in profit_factors if pf != float('inf')]),
-        'profitable_periods': sum(1 for r in returns if r > 0),
-        'total_periods': len(returns),
-        'robustness': sum(1 for r in returns if r > 0) / len(returns) if returns else 0
-    }
-    
-    # Calculate consecutive wins/losses
-    profitable = [r > 0 for r in returns]
-    max_consecutive_wins = max(sum(1 for _ in group) for key, group in itertools.groupby(profitable) if key) if profitable else 0
-    
-    unprofitable = [r <= 0 for r in returns]
-    max_consecutive_losses = max(sum(1 for _ in group) for key, group in itertools.groupby(unprofitable) if key) if unprofitable else 0
-    
-    metrics['max_consecutive_wins'] = max_consecutive_wins
-    metrics['max_consecutive_losses'] = max_consecutive_losses
-    
-    return metrics
-
-def _plot_walk_forward_returns(self, period_results, symbol, output_dir):
-    """Plot returns for each walk-forward period"""
-    periods = [p['period'] for p in period_results]
-    returns = [p['metrics']['total_return'] for p in period_results]
-    
-    plt.figure(figsize=(12, 6))
-    
-    # Create bar colors based on return values
-    colors = ['green' if r > 0 else 'red' for r in returns]
-    
-    plt.bar(periods, returns, color=colors)
-    plt.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
-    
-    # Add average line
-    avg_return = np.mean(returns)
-    plt.axhline(y=avg_return, color='blue', linestyle='--', label=f'Average: {avg_return:.2f}%')
-    
-    plt.title(f'Walk-Forward Test Returns: {symbol}')
-    plt.xlabel('Period')
-    plt.ylabel('Return (%)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    plt.savefig(os.path.join(output_dir, 'period_returns.png'))
-    plt.close()
-
-def _plot_walk_forward_metric(self, period_results, metric, symbol, output_dir):
-    """Plot a specific metric across walk-forward periods"""
-    periods = [p['period'] for p in period_results]
-    values = [p['metrics'][metric] for p in period_results]
-    
-    plt.figure(figsize=(12, 6))
-    
-    plt.plot(periods, values, marker='o', linestyle='-', linewidth=2)
-    
-    # Add average line
-    avg_value = np.mean(values)
-    plt.axhline(y=avg_value, color='red', linestyle='--', label=f'Average: {avg_value:.2f}')
-    
-    # Add standard deviation band if more than 1 period
-    if len(values) > 1:
-        std_dev = np.std(values)
-        plt.fill_between(periods, avg_value - std_dev, avg_value + std_dev, 
-                       color='red', alpha=0.1, label=f'±1 StdDev: {std_dev:.2f}')
-    
-    title_map = {
-        'total_return': 'Return (%)',
-        'win_rate': 'Win Rate (%)',
-        'profit_factor': 'Profit Factor'
-    }
-    
-    metric_title = title_map.get(metric, metric.replace('_', ' ').title())
-    
-    plt.title(f'Walk-Forward {metric_title} Consistency: {symbol}')
-    plt.xlabel('Period')
-    plt.ylabel(metric_title)
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    plt.savefig(os.path.join(output_dir, f'{metric}_consistency.png'))
-    plt.close()
-
-def _save_results(self, results, filename):
-    """Save results to JSON file, handling non-serializable types"""
-    # Create a deep copy to avoid modifying original data
-    results_copy = deepcopy(results)
-    
-    # Helper function to convert non-serializable types
-    def convert_for_json(obj):
-        if isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
-            return int(obj)
-        elif isinstance(obj, (np.float64, np.float32, np.float16)):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, pd.Timestamp) or isinstance(obj, datetime.datetime):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')
-        elif isinstance(obj, datetime.date):
-            return obj.strftime('%Y-%m-%d')
-        elif isinstance(obj, dict):
-            return {k: convert_for_json(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [convert_for_json(i) for i in obj]
-        elif isinstance(obj, float) and np.isnan(obj):
+        if df is None or len(df) < 100:
+            logger.error(f"Insufficient data for {symbol}, cannot run backtest")
             return None
-        elif isinstance(obj, float) and np.isinf(obj):
-            return "Infinity"
-        else:
-            return obj
+        
+        # Create output directory for this symbol
+        symbol_safe = symbol.replace('|', '_').replace(' ', '_')
+        output_dir = os.path.join(self.results_dir, symbol_safe)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Initialize and run backtest engine
+        engine = BacktestEngine(initial_capital=initial_capital, commission=commission)
+        results = engine.run_backtest(df, symbol, name=stock_name, industry=industry)
+        
+        if results is None:
+            logger.error(f"Backtest failed for {symbol}")
+            return None
+        
+        # Save results to JSON
+        self._save_results(results, os.path.join(output_dir, 'backtest_results.json'))
+        
+        if plot:
+            try:
+                # Get benchmark data if possible
+                benchmark_df = self.get_benchmark_data()
+                
+                # Plot and save equity curve
+                fig = engine.plot_equity_curve(f"Equity Curve: {stock_name}", benchmark_df)
+                if fig:
+                    fig.savefig(os.path.join(output_dir, 'equity_curve.png'))
+                    plt.close(fig)
+                
+                # Plot and save monthly returns
+                fig = engine.plot_monthly_returns()
+                if fig:
+                    fig.savefig(os.path.join(output_dir, 'monthly_returns.png'))
+                    plt.close(fig)
+                
+                # Plot and save drawdown chart
+                fig = engine.plot_drawdown_chart()
+                if fig:
+                    fig.savefig(os.path.join(output_dir, 'drawdown.png'))
+                    plt.close(fig)
+                    
+            except Exception as e:
+                logger.error(f"Error generating plots: {str(e)}")
+        
+        return results
+    
+    def run_portfolio_backtest(self, symbols=None, start_date=None, end_date=None, 
+                              initial_capital=1000000, max_positions=10, rebalance_freq='monthly',
+                              allocation_method='equal', commission=0.0015, plot=True):
+        """
+        Run portfolio backtest on multiple symbols
+        
+        Args:
+            symbols: List of symbols to include in portfolio (defaults to config.STOCK_LIST)
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+            initial_capital: Initial portfolio capital
+            max_positions: Maximum number of simultaneous positions
+            rebalance_freq: Rebalancing frequency ('daily', 'weekly', 'monthly')
+            allocation_method: How to allocate capital ('equal', 'risk_parity')
+            commission: Commission rate
+            plot: Whether to generate and save plots
             
-    # Convert all data
-    results_json = convert_for_json(results_copy)
+        Returns:
+            Dict with portfolio backtest results
+        """
+        # Use default symbols list if none provided
+        if symbols is None:
+            if hasattr(config, 'STOCK_LIST'):
+                symbols = config.STOCK_LIST[:20]  # Limit to first 20 by default
+            else:
+                logger.error("No symbols list provided and no default list found in config")
+                return None
+        
+        # Initialize data if needed
+        if self.upstox_client is None and not self.initialize_upstox():
+            logger.error("Failed to initialize Upstox client")
+            return None
+        
+        logger.info(f"Running portfolio backtest with {len(symbols)} symbols")
+        
+        # Fetch data for all symbols
+        data_dict = self.fetch_data_for_symbols(symbols, start_date, end_date)
+        
+        if not data_dict:
+            logger.error("No data fetched, cannot run portfolio backtest")
+            return None
+            
+        # Create output directory for portfolio results
+        output_dir = os.path.join(self.results_dir, 'portfolio')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Initialize and run portfolio backtester
+        backtester = PortfolioBacktester(initial_capital=initial_capital, commission=commission)
+        results = backtester.run_portfolio_backtest(
+            data_dict, 
+            start_date=start_date,
+            end_date=end_date,
+            rebalance_freq=rebalance_freq,
+            max_positions=max_positions,
+            allocation_method=allocation_method
+        )
+        
+        if results is None:
+            logger.error("Portfolio backtest failed")
+            return None
+        
+        # Save results to JSON
+        self._save_results(results, os.path.join(output_dir, 'portfolio_results.json'))
+        
+        if plot:
+            try:
+                # Get benchmark data if possible
+                benchmark_df = self.get_benchmark_data()
+                
+                # Plot and save equity curve
+                fig = backtester.plot_equity_curve(benchmark_df, 'Portfolio Performance')
+                if fig:
+                    fig.savefig(os.path.join(output_dir, 'portfolio_equity_curve.png'))
+                    plt.close(fig)
+                
+                # Plot and save allocations
+                fig = backtester.plot_allocations()
+                if fig:
+                    fig.savefig(os.path.join(output_dir, 'portfolio_allocations.png'))
+                    plt.close(fig)
+                    
+            except Exception as e:
+                logger.error(f"Error generating portfolio plots: {str(e)}")
+        
+        return results
     
-    # Save to file
-    with open(filename, 'w') as f:
-        json.dump(results_json, f, indent=2)
+    def run_walk_forward_test(self, symbol, in_sample_days=120, out_sample_days=30, 
+                             start_date=None, end_date=None, initial_capital=100000, 
+                             commission=0.0015, plot=True):
+        """
+        Run walk-forward test on a symbol
+        
+        Args:
+            symbol: Symbol to test
+            in_sample_days: Number of days for in-sample period
+            out_sample_days: Number of days for out-of-sample period
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+            initial_capital: Initial capital
+            commission: Commission rate
+            plot: Whether to generate plots
+            
+        Returns:
+            Dict with walk-forward test results
+        """
+        # Initialize data if needed
+        if self.upstox_client is None and not self.initialize_upstox():
+            logger.error("Failed to initialize Upstox client")
+            return None
+        
+        logger.info(f"Running walk-forward test for {symbol}")
+        
+        # Get stock information if available
+        stock_name = symbol
+        
+        # Check if we have stock info in config
+        if "|" in symbol:
+            isin = symbol.split("|")[1]
+            if hasattr(config, 'STOCK_INFO') and isin in config.STOCK_INFO:
+                stock_info = config.STOCK_INFO[isin]
+                stock_name = stock_info.get('name', symbol)
+        
+        # Ensure we have enough data for walk-forward testing
+        if start_date is None:
+            # Need extra history for walk-forward testing
+            start_date = (datetime.datetime.now() - datetime.timedelta(days=365*2)).strftime('%Y-%m-%d')
+            
+        if end_date is None:
+            end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        # Fetch historical data
+        df = self.upstox_client.get_historical_data(
+            symbol, 'day', start_date, end_date
+        )
+        
+        if df is None or len(df) < (in_sample_days + out_sample_days * 2):
+            logger.error(f"Insufficient data for {symbol}, cannot run walk-forward test")
+            return None
+        
+        # Create output directory for this symbol
+        symbol_safe = symbol.replace('|', '_').replace(' ', '_')
+        output_dir = os.path.join(self.results_dir, 'walk_forward', symbol_safe)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Create walk-forward periods
+        periods = []
+        total_days = len(df)
+        max_periods = (total_days - in_sample_days) // out_sample_days
+        
+        if max_periods < 1:
+            logger.error(f"Not enough data for walk-forward testing of {symbol}")
+            return None
+            
+        logger.info(f"Creating {max_periods} walk-forward periods")
+        
+        for i in range(max_periods):
+            in_sample_start = i * out_sample_days
+            in_sample_end = in_sample_start + in_sample_days
+            out_sample_start = in_sample_end
+            out_sample_end = min(out_sample_start + out_sample_days, total_days)
+            
+            if out_sample_end - out_sample_start < out_sample_days // 2:
+                # Skip if out-sample period is too short
+                continue
+                
+            periods.append({
+                'in_sample': {
+                    'start': in_sample_start,
+                    'end': in_sample_end,
+                    'data': df.iloc[in_sample_start:in_sample_end]
+                },
+                'out_sample': {
+                    'start': out_sample_start,
+                    'end': out_sample_end,
+                    'data': df.iloc[out_sample_start:out_sample_end]
+                }
+            })
+            
+        logger.info(f"Created {len(periods)} valid walk-forward periods")
+        
+        # Run backtests for each period
+        period_results = []
+        
+        for i, period in enumerate(periods):
+            logger.info(f"Testing period {i+1}/{len(periods)}")
+            
+            # Use in-sample data for parameter optimization (for future enhancement)
+            # For now, we'll just use default parameters
+            
+            # Run backtest on out-of-sample data
+            engine = BacktestEngine(initial_capital=initial_capital, commission=commission)
+            results = engine.run_backtest(
+                period['out_sample']['data'], 
+                symbol, 
+                name=f"{stock_name} - Period {i+1}"
+            )
+            
+            if results is not None:
+                period_results.append({
+                    'period': i + 1,
+                    'in_sample_start': period['in_sample']['data'].index[0],
+                    'in_sample_end': period['in_sample']['data'].index[-1],
+                    'out_sample_start': period['out_sample']['data'].index[0],
+                    'out_sample_end': period['out_sample']['data'].index[-1],
+                    'metrics': results['metrics'],
+                    'equity_curve': results['equity_curve']
+                })
+        
+        if not period_results:
+            logger.error(f"No valid results from walk-forward test for {symbol}")
+            return None
+            
+        # Calculate aggregated metrics
+        wf_metrics = self._calculate_walk_forward_metrics(period_results)
+        
+        # Combine all results
+        walk_forward_results = {
+            'symbol': symbol,
+            'name': stock_name,
+            'in_sample_days': in_sample_days,
+            'out_sample_days': out_sample_days,
+            'periods': period_results,
+            'metrics': wf_metrics
+        }
+        
+        # Save results
+        self._save_results(walk_forward_results, os.path.join(output_dir, 'walk_forward_results.json'))
+        
+        if plot:
+            try:
+                # Plot period returns
+                self._plot_walk_forward_returns(period_results, symbol, output_dir)
+                
+                # Plot metrics consistency
+                for metric in ['total_return', 'win_rate', 'profit_factor']:
+                    self._plot_walk_forward_metric(period_results, metric, symbol, output_dir)
+                
+            except Exception as e:
+                logger.error(f"Error generating walk-forward plots: {str(e)}")
+                
+        return walk_forward_results
     
-    logger.info(f"Results saved to {filename}")
+    def _calculate_walk_forward_metrics(self, period_results):
+        """Calculate aggregated metrics from walk-forward periods"""
+        if not period_results:
+            return {}
+            
+        # Extract metrics from all periods
+        returns = [p['metrics']['total_return'] for p in period_results]
+        win_rates = [p['metrics']['win_rate'] for p in period_results]
+        profit_factors = [p['metrics'].get('profit_factor', 0) for p in period_results]
+        
+        # Calculate statistics
+        metrics = {
+            'avg_return': np.mean(returns),
+            'median_return': np.median(returns),
+            'return_std': np.std(returns),
+            'min_return': min(returns),
+            'max_return': max(returns),
+            'avg_win_rate': np.mean(win_rates),
+            'avg_profit_factor': np.mean([pf for pf in profit_factors if pf != float('inf')]),
+            'profitable_periods': sum(1 for r in returns if r > 0),
+            'total_periods': len(returns),
+            'robustness': sum(1 for r in returns if r > 0) / len(returns) if returns else 0
+        }
+        
+        # Calculate consecutive wins/losses
+        profitable = [r > 0 for r in returns]
+        max_consecutive_wins = max(sum(1 for _ in group) for key, group in itertools.groupby(profitable) if key) if profitable else 0
+        
+        unprofitable = [r <= 0 for r in returns]
+        max_consecutive_losses = max(sum(1 for _ in group) for key, group in itertools.groupby(unprofitable) if key) if unprofitable else 0
+        
+        metrics['max_consecutive_wins'] = max_consecutive_wins
+        metrics['max_consecutive_losses'] = max_consecutive_losses
+        
+        return metrics
+    
+    def _plot_walk_forward_returns(self, period_results, symbol, output_dir):
+        """Plot returns for each walk-forward period"""
+        periods = [p['period'] for p in period_results]
+        returns = [p['metrics']['total_return'] for p in period_results]
+        
+        plt.figure(figsize=(12, 6))
+        
+        # Create bar colors based on return values
+        colors = ['green' if r > 0 else 'red' for r in returns]
+        
+        plt.bar(periods, returns, color=colors)
+        plt.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
+        
+        # Add average line
+        avg_return = np.mean(returns)
+        plt.axhline(y=avg_return, color='blue', linestyle='--', label=f'Average: {avg_return:.2f}%')
+        
+        plt.title(f'Walk-Forward Test Returns: {symbol}')
+        plt.xlabel('Period')
+        plt.ylabel('Return (%)')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.savefig(os.path.join(output_dir, 'period_returns.png'))
+        plt.close()
+    
+    def _plot_walk_forward_metric(self, period_results, metric, symbol, output_dir):
+        """Plot a specific metric across walk-forward periods"""
+        periods = [p['period'] for p in period_results]
+        values = [p['metrics'][metric] for p in period_results]
+        
+        plt.figure(figsize=(12, 6))
+        
+        plt.plot(periods, values, marker='o', linestyle='-', linewidth=2)
+        
+        # Add average line
+        avg_value = np.mean(values)
+        plt.axhline(y=avg_value, color='red', linestyle='--', label=f'Average: {avg_value:.2f}')
+        
+        # Add standard deviation band if more than 1 period
+        if len(values) > 1:
+            std_dev = np.std(values)
+            plt.fill_between(periods, avg_value - std_dev, avg_value + std_dev, 
+                           color='red', alpha=0.1, label=f'±1 StdDev: {std_dev:.2f}')
+        
+        title_map = {
+            'total_return': 'Return (%)',
+            'win_rate': 'Win Rate (%)',
+            'profit_factor': 'Profit Factor'
+        }
+        
+        metric_title = title_map.get(metric, metric.replace('_', ' ').title())
+        
+        plt.title(f'Walk-Forward {metric_title} Consistency: {symbol}')
+        plt.xlabel('Period')
+        plt.ylabel(metric_title)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.savefig(os.path.join(output_dir, f'{metric}_consistency.png'))
+        plt.close()
+    
+    def _save_results(self, results, filename):
+        """Save results to JSON file, handling non-serializable types"""
+        # Create a deep copy to avoid modifying original data
+        results_copy = deepcopy(results)
+        
+        # Helper function to convert non-serializable types
+        def convert_for_json(obj):
+            if isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+                return int(obj)
+            elif isinstance(obj, (np.float64, np.float32, np.float16)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, pd.Timestamp) or isinstance(obj, datetime.datetime):
+                return obj.strftime('%Y-%m-%d %H:%M:%S')
+            elif isinstance(obj, datetime.date):
+                return obj.strftime('%Y-%m-%d')
+            elif isinstance(obj, dict):
+                return {k: convert_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_for_json(i) for i in obj]
+            elif isinstance(obj, float) and np.isnan(obj):
+                return None
+            elif isinstance(obj, float) and np.isinf(obj):
+                return "Infinity"
+            else:
+                return obj
+            
+        # Convert all data
+        results_json = convert_for_json(results_copy)
+        
+        # Save to file
+        with open(filename, 'w') as f:
+            json.dump(results_json, f, indent=2)
+        
+        logger.info(f"Results saved to {filename}")
+
 
 # Helper functions for command-line interface
 def parse_arguments():
@@ -1980,8 +1983,6 @@ def parse_arguments():
 
 def main():
     """Main execution function"""
-    import itertools  # Used by walk-forward plotting
-    
     args = parse_arguments()
     
     if not args.command:
