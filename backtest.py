@@ -1470,7 +1470,7 @@ class BacktestRunner:
         logger.info(f"Successfully fetched data for {len(data_dict)}/{len(symbols)} symbols")
         return data_dict
     
-        def run_single_backtest(self, symbol, start_date=None, end_date=None, 
+    def run_single_backtest(self, symbol, start_date=None, end_date=None, 
                            initial_capital=100000, commission=0.0015, plot=True):
         """
         Run backtest on a single symbol
